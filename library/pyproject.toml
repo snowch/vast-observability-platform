@@ -7,7 +7,7 @@ name = "vastdb-observability"
 version = "1.0.0"
 description = "Python library for processing database observability telemetry"
 authors = [{name = "Your Organization"}]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",

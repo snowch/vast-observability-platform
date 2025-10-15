@@ -6,11 +6,17 @@ Python library for processing database observability telemetry and storing it in
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Install the library in editable mode
+pip install -e .
 
 # Set up environment
 cp .env.example .env
 # Edit .env with your VAST Database credentials
+
+# Run tests
+python -m pytest tests/test_processors.py -v
 
 # Run example
 python examples/simple_usage.py
@@ -19,12 +25,10 @@ python examples/simple_usage.py
 ## Installation
 
 ```bash
+# For production use
 pip install -e .
-```
 
-Or with development dependencies:
-
-```bash
+# For development (includes testing tools)
 pip install -e ".[dev]"
 ```
 
@@ -60,11 +64,27 @@ See `docs/` directory for detailed documentation:
 ## Testing
 
 ```bash
-# Run tests
-pytest
+# Run all tests
+python -m pytest tests/test_processors.py -v
 
-# With coverage
-pytest --cov=vastdb_observability
+# Run tests with coverage
+python -m pytest --cov=vastdb_observability tests/
+
+# Run with verbose output
+python -m pytest tests/test_processors.py -vv
+```
+
+## Development
+
+```bash
+# Format code
+black vastdb_observability/ tests/ examples/
+
+# Lint code
+ruff check vastdb_observability/
+
+# Type check
+mypy vastdb_observability/
 ```
 
 ## License

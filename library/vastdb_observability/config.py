@@ -1,9 +1,12 @@
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import Optional
 
 
 class ProcessorConfig(BaseSettings):
     """Configuration for processors and exporters."""
+    
+    model_config = ConfigDict(env_prefix="", env_file=".env")
 
     # VAST Database connection
     vast_host: str = "localhost"
@@ -23,7 +26,3 @@ class ProcessorConfig(BaseSettings):
     # Data quality
     validate_data: bool = True
     drop_invalid: bool = False
-
-    class Config:
-        env_prefix = ""
-        env_file = ".env"

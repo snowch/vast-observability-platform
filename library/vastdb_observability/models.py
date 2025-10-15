@@ -1,12 +1,15 @@
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import uuid
 import hashlib
 
 
 class ProcessedMetric(BaseModel):
     """Normalized metric data for VAST Database."""
+    
+    # Pydantic v2 automatically serializes datetime to ISO format
+    model_config = ConfigDict()
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
@@ -22,12 +25,12 @@ class ProcessedMetric(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
-
 
 class ProcessedLog(BaseModel):
     """Normalized log data for VAST Database."""
+    
+    # Pydantic v2 automatically serializes datetime to ISO format
+    model_config = ConfigDict()
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
@@ -42,12 +45,12 @@ class ProcessedLog(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
-
 
 class ProcessedQuery(BaseModel):
     """Normalized query data for VAST Database."""
+    
+    # Pydantic v2 automatically serializes datetime to ISO format
+    model_config = ConfigDict()
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
@@ -69,9 +72,6 @@ class ProcessedQuery(BaseModel):
     tags: Dict[str, str] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
 
     @staticmethod
     def compute_query_hash(query_text: str) -> str:

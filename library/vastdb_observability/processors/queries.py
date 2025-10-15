@@ -70,7 +70,7 @@ class QueriesProcessor(BaseProcessor[ProcessedQuery]):
             query.tags["performance"] = "slow"
 
         if query.cache_hit_ratio is not None:
-            if query.cache_hit_ratio > 0.95:
+            if query.cache_hit_ratio >= 0.95:
                 query.tags["cache_efficiency"] = "excellent"
             elif query.cache_hit_ratio > 0.80:
                 query.tags["cache_efficiency"] = "good"
