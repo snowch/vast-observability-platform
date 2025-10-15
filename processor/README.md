@@ -71,3 +71,15 @@ This project is the processing layer of the VAST Observability Platform. It cons
 5.  The `BatchProcessor` accumulates items until its `max_batch_size` or `max_batch_age_seconds` is reached.
 6.  When the batch is ready to be flushed, the `VASTExporter` is used to write the entire batch to the appropriate tables in VAST Database.
 7.  Kafka offsets are committed after each message is successfully added to the batch, ensuring at-least-once processing semantics.
+
+## Data Mapping to VAST Tables
+
+The collectors in this project produce raw data to Kafka topics. A separate `processor` service consumes this data and maps it to the VAST Database tables as follows:
+
+| Kafka Topic | Producer | Processor | VAST Table | Details |
+| :--- | :--- | :--- | :--- | :--- |
+| `raw-logs` | Python Collector | `LogsProcessor` | **`events`** | Each log message becomes a row with `event_type` = `'log'`. |
+| `raw-queries` | Python Collector | `QueriesProcessor` | **`events`** | Each query analytics message becomes a row with `event_type` = `'database_query'`. |
+| `otel-metrics` | OTel Collector | `MetricsProcessor` | **`metrics`** | Each metric data point becomes a row linked to a host via `entity_id`. |
+
+**Note**: The **`entities`** table is not populated by this pipeline. It requires a separate discovery or inventory process to catalog the systems being monitored.
