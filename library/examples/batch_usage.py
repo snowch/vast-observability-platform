@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+ 
 """An example of batch processing with the vastdb-observability library."""
 import asyncio
 from vastdb_observability import BatchProcessor, VASTExporter

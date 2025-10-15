@@ -1,9 +1,17 @@
+#!/usr/bin/env python3
+ 
 """
-A simple usage example for the vastdb-observability library, demonstrating how
-to process and export multiple types of telemetry (logs, queries, and metrics)
-using the new, extensible, entity-centric schema.
+A usage example for the vastdb-observability library that reads raw
+telemetry data from the sample fixture files.
+
+This script demonstrates a more realistic workflow:
+1. Load raw data for logs, queries, and metrics from JSON files.
+2. Process each type of data into the unified, extensible models.
+3. Export the processed data to VAST Database.
 """
 import asyncio
+import json
+from pathlib import Path
 from vastdb_observability import (
     LogsProcessor, 
     QueriesProcessor, 
@@ -12,15 +20,36 @@ from vastdb_observability import (
 )
 from vastdb_observability.config import ProcessorConfig
 
+
+def load_fixture_data():
+    """Loads sample raw data from the test fixture JSON files."""
+    fixture_dir = Path(__file__).parent.parent / "tests" / "fixtures"
+    
+    # The logs and queries files are JSON Lines format (one JSON object per line)
+    # We'll just read the first line for this example.
+    with open(fixture_dir / "sample-raw-logs.json", "r") as f:
+        raw_log = json.loads(f.readline())
+        
+    with open(fixture_dir / "sample-raw-queries.json", "r") as f:
+        raw_query = json.loads(f.readline())
+        
+    # The metrics file is a standard JSON array
+    with open(fixture_dir / "sample-otel-metrics.json", "r") as f:
+        # The file contains a list of resource metrics, we'll use the first one
+        raw_metric_otlp = json.load(f)[0]
+        
+    return raw_log, raw_query, raw_metric_otlp
+
+
 async def main():
     """
-    Processes one of each telemetry type (log, query, metric) and exports them
+    Processes one of each telemetry type from fixture files and exports them
     to their respective tables in VAST Database.
     """
-    # 1. Load configuration from environment or .env file
+    # 1. Load configuration from environment variables or a .env file
     config = ProcessorConfig()
 
-    # 2. Initialize all necessary processors
+    # 2. Initialize the processors for each data type
     logs_processor = LogsProcessor()
     queries_processor = QueriesProcessor()
     metrics_processor = MetricsProcessor()
@@ -37,44 +66,13 @@ async def main():
     print(f"✓ Connected to VAST DB at {config.vast_endpoint}")
     print("-" * 40)
 
-    # 4. Simulate different types of raw telemetry data
-    
-    # A raw log about database deadlocks
-    raw_log = {
-        "timestamp": "2025-10-15T14:30:00.123Z",
-        "source": "postgresql",
-        "data_type": "log",
-        "host": "pg-prod-A1",
-        "tags": {"log_level": "warning"},
-        "payload": {"event_type": "deadlocks", "count": 3, "details": "..."},
-    }
+    # 4. Load the raw telemetry data from the fixture files
+    print("Loading raw data from tests/fixtures/...")
+    raw_log, raw_query, raw_metric_otlp = load_fixture_data()
+    print("✓ Data loaded successfully.")
+    print("-" * 40)
 
-    # Raw query analytics for a slow query
-    raw_query = {
-        "timestamp": "2025-10-15T14:30:05.456Z",
-        "source": "postgresql",
-        "data_type": "query",
-        "host": "pg-prod-A1",
-        "payload": {
-            "query": "SELECT ... FROM orders JOIN customers ...",
-            "calls": 50,
-            "mean_time_ms": 1250.7,
-        },
-    }
-
-    # A raw OTLP metric for CPU utilization
-    raw_metric_otlp = {
-        "resource": { "attributes": [ {"key": "host.name", "value": {"stringValue": "pg-prod-A1"}}, {"key": "db.system", "value": {"stringValue": "postgresql"}} ] },
-        "scopeMetrics": [{
-            "metrics": [{
-                "name": "system.cpu.utilization", "unit": "%",
-                "gauge": { "dataPoints": [{ "timeUnixNano": "1697376610000000000", "asDouble": "0.85" }] }
-            }]
-        }]
-    }
-
-    # 5. Process each piece of raw data
-    
+    # 5. Process each piece of raw data into the unified models
     processed_log_event = logs_processor.process(raw_log)
     print("Processed Log as Event:")
     print(f"  Entity: {processed_log_event.entity_id}, Message: {processed_log_event.message}")
@@ -88,9 +86,7 @@ async def main():
     print(f"  Entity: {processed_metrics[0].entity_id}, Metric: {processed_metrics[0].metric_name}, Value: {processed_metrics[0].metric_value}")
     print("-" * 40)
     
-    # 6. Export the processed data to VAST DB
-    
-    # Combine log and query events into one list
+    # 6. Export the processed data to the appropriate tables in VAST DB
     all_events = [processed_log_event, processed_query_event]
     
     await exporter.export_events(all_events)
@@ -100,6 +96,8 @@ async def main():
     print(f"✓ Exported {len(processed_metrics)} metrics to the 'metrics' table.")
 
     await exporter.disconnect()
+    print("\n✓ Export complete and connection closed.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
