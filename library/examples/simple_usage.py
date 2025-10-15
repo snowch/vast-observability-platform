@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 A usage example for the vastdb-observability library that reads raw
 telemetry data from the sample fixture files and exports the processed
