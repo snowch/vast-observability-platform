@@ -3,8 +3,12 @@ import json
 import signal
 import sys
 import time
+import gzip
 from confluent_kafka import Consumer, KafkaError
 import structlog
+from google.protobuf.json_format import MessageToDict
+from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
+
 from vastdb_observability import BatchProcessor, VASTExporter
 from .config import Settings
 
@@ -25,7 +29,7 @@ class KafkaProcessorService:
         # Configure Kafka consumer
         consumer_conf = {
             'bootstrap.servers': self.settings.KAFKA_BOOTSTRAP_SERVERS,
-            'group.id': self.settings.KAFKA_GROUP_ID,
+            'group.id': self.settings.KAFA_GROUP_ID,
             'auto.offset.reset': 'earliest',
             'enable.auto.commit': False
         }
@@ -67,13 +71,27 @@ class KafkaProcessorService:
 
                 # Process the message
                 try:
-                    message_data = json.loads(msg.value().decode('utf-8'))
+                    topic = msg.topic()
+                    value = msg.value()
+                    
+                    if topic == 'otel-metrics':
+                        # Decompress the gzipped data
+                        decompressed_data = gzip.decompress(value)
+                        
+                        # Parse the Protobuf message
+                        metrics_request = ExportMetricsServiceRequest()
+                        metrics_request.ParseFromString(decompressed_data)
+                        
+                        # Convert to Dict for the processor
+                        message_data = MessageToDict(metrics_request.resource_metrics[0])
+                    else:
+                        # Handle JSON messages for other topics
+                        message_data = json.loads(value.decode('utf-8'))
+
                     self.batch_processor.add(message_data)
                     self.consumer.commit(asynchronous=True)
-                except json.JSONDecodeError:
-                    logger.warning("invalid_json_message", topic=msg.topic(), partition=msg.partition(), offset=msg.offset())
-                except Exception as e:
-                    logger.error("message_processing_failed", error=str(e))
+                except (json.JSONDecodeError, gzip.BadGzipFile, Exception) as e:
+                    logger.error("message_processing_failed", error=str(e), topic=msg.topic())
 
                 # Check if batch should be flushed
                 if self.batch_processor.should_flush():
@@ -81,6 +99,7 @@ class KafkaProcessorService:
 
         finally:
             self.consumer.close()
+
 
     async def flush_batch(self):
         """Flushes the current batch to VAST DB."""
