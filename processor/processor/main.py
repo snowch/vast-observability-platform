@@ -29,7 +29,7 @@ class KafkaProcessorService:
         # Configure Kafka consumer
         consumer_conf = {
             'bootstrap.servers': self.settings.KAFKA_BOOTSTRAP_SERVERS,
-            'group.id': self.settings.KAFA_GROUP_ID,
+            'group.id': self.settings.KAFKA_GROUP_ID, # <-- FIX WAS HERE
             'auto.offset.reset': 'earliest',
             'enable.auto.commit': False
         }
@@ -83,12 +83,16 @@ class KafkaProcessorService:
                         metrics_request.ParseFromString(decompressed_data)
                         
                         # Convert to Dict for the processor
-                        message_data = MessageToDict(metrics_request.resource_metrics[0])
+                        # OTLP can batch multiple resource metrics, so we loop through them
+                        for resource_metric in metrics_request.resource_metrics:
+                            message_data = MessageToDict(resource_metric)
+                            self.batch_processor.add(message_data)
+
                     else:
                         # Handle JSON messages for other topics
                         message_data = json.loads(value.decode('utf-8'))
+                        self.batch_processor.add(message_data)
 
-                    self.batch_processor.add(message_data)
                     self.consumer.commit(asynchronous=True)
                 except (json.JSONDecodeError, gzip.BadGzipFile, Exception) as e:
                     logger.error("message_processing_failed", error=str(e), topic=msg.topic())
