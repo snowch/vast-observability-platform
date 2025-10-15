@@ -1,19 +1,17 @@
 services:
   processor:
     build:
-      # Use the parent directory as the build context
       context: ..
-      # Specify the path to the Dockerfile relative to that context
       dockerfile: ./processor/Dockerfile
     container_name: processor
     networks:
       - observability
-    # Load the .env file from the processor directory
     env_file:
       - .env
     restart: unless-stopped
 
 networks:
   observability:
-    # Connect to the network created by the ingest services
-    external: true
+    external:
+      # Point to the actual network name created by the ingest project
+      name: ingest_observability
