@@ -1,74 +1,177 @@
 -- VAST Database Schema for Observability Data
+-- Using Arrow-compatible data types with VAST-specific optimizations
+-- Reference: https://support.vastdata.com/s/article/UUID-48d0a8cf-5786-5ef3-3fa3-9c64e63a0967
 
-CREATE SCHEMA IF NOT EXISTS observability;
-SET search_path TO observability;
+-- Note: Use PyArrow Schema and vastdb.create_table() for proper table creation
+-- This SQL is for documentation/reference only
 
--- Metrics table
-CREATE TABLE IF NOT EXISTS db_metrics (
-    id UUID PRIMARY KEY,
-    timestamp TIMESTAMP NOT NULL,
-    source VARCHAR(50) NOT NULL,
-    host VARCHAR(255) NOT NULL,
-    database_name VARCHAR(255) NOT NULL,
-    environment VARCHAR(50),
-    metric_name VARCHAR(255) NOT NULL,
-    metric_value DOUBLE PRECISION,
-    metric_type VARCHAR(50),
-    unit VARCHAR(50),
-    tags JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- =============================================================================
+-- Metrics Table
+-- =============================================================================
+-- Query patterns: Filter by timestamp, host, database, metric_name
+-- Sorting keys (up to 4): timestamp, host, database_name, metric_name
+-- 
+-- Example Python creation:
+--   schema = pa.schema([
+--       ('vastdb_rowid', pa.int64()),  # Optional: for row-level control
+--       ('timestamp', pa.timestamp('us')),
+--       ('host', pa.string()),
+--       ('database_name', pa.string()),
+--       ('metric_name', pa.string()),
+--       ('source', pa.string()),
+--       ('environment', pa.string()),
+--       ('metric_value', pa.float64()),
+--       ('metric_type', pa.string()),
+--       ('unit', pa.string()),
+--       ('tags', pa.string()),
+--       ('metadata', pa.string()),
+--       ('created_at', pa.timestamp('us'))
+--   ])
+--   table = db_schema.create_table(
+--       'db_metrics',
+--       schema,
+--       sorting_key=['timestamp', 'host', 'database_name', 'metric_name']
+--   )
+
+CREATE TABLE observability.db_metrics (
+    vastdb_rowid INT64,  -- Optional: for row-level access/control
+    timestamp TIMESTAMP,  -- Sorting key 1: Primary filter (time-series queries)
+    host STRING,          -- Sorting key 2: Common filter (per-host queries)
+    database_name STRING, -- Sorting key 3: Common filter (per-database queries)
+    metric_name STRING,   -- Sorting key 4: Metric type filter
+    source STRING,
+    environment STRING,
+    metric_value DOUBLE,
+    metric_type STRING,
+    unit STRING,
+    tags STRING,          -- JSON serialized as string
+    metadata STRING,      -- JSON serialized as string
+    created_at TIMESTAMP
 );
 
-CREATE INDEX idx_metrics_timestamp ON db_metrics(timestamp DESC);
-CREATE INDEX idx_metrics_source_host ON db_metrics(source, host, database_name);
-CREATE INDEX idx_metrics_name ON db_metrics(metric_name);
+-- =============================================================================
+-- Logs Table
+-- =============================================================================
+-- Query patterns: Filter by timestamp, host, database, log_level/event_type
+-- Sorting keys (up to 4): timestamp, host, database_name, log_level
+--
+-- Example Python creation:
+--   schema = pa.schema([
+--       ('vastdb_rowid', pa.int64()),
+--       ('timestamp', pa.timestamp('us')),
+--       ('host', pa.string()),
+--       ('database_name', pa.string()),
+--       ('log_level', pa.string()),
+--       ('source', pa.string()),
+--       ('environment', pa.string()),
+--       ('event_type', pa.string()),
+--       ('message', pa.string()),
+--       ('tags', pa.string()),
+--       ('metadata', pa.string()),
+--       ('created_at', pa.timestamp('us'))
+--   ])
+--   table = db_schema.create_table(
+--       'db_logs',
+--       schema,
+--       sorting_key=['timestamp', 'host', 'database_name', 'log_level']
+--   )
 
--- Logs table
-CREATE TABLE IF NOT EXISTS db_logs (
-    id UUID PRIMARY KEY,
-    timestamp TIMESTAMP NOT NULL,
-    source VARCHAR(50) NOT NULL,
-    host VARCHAR(255) NOT NULL,
-    database_name VARCHAR(255) NOT NULL,
-    environment VARCHAR(50),
-    log_level VARCHAR(20),
-    event_type VARCHAR(100),
-    message TEXT,
-    tags JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE observability.db_logs (
+    vastdb_rowid INT64,   -- Optional: for row-level access/control
+    timestamp TIMESTAMP,  -- Sorting key 1: Primary filter (time-series queries)
+    host STRING,          -- Sorting key 2: Common filter (per-host queries)
+    database_name STRING, -- Sorting key 3: Common filter (per-database queries)
+    log_level STRING,     -- Sorting key 4: Severity filter (errors, warnings)
+    source STRING,
+    environment STRING,
+    event_type STRING,
+    message STRING,
+    tags STRING,          -- JSON serialized as string
+    metadata STRING,      -- JSON serialized as string
+    created_at TIMESTAMP
 );
 
-CREATE INDEX idx_logs_timestamp ON db_logs(timestamp DESC);
-CREATE INDEX idx_logs_source_host ON db_logs(source, host, database_name);
-CREATE INDEX idx_logs_level ON db_logs(log_level);
+-- =============================================================================
+-- Queries Table
+-- =============================================================================
+-- Query patterns: Filter by timestamp, host, database, performance metrics
+-- Sorting keys (up to 4): timestamp, host, database_name, mean_time_ms
+--
+-- Example Python creation:
+--   schema = pa.schema([
+--       ('vastdb_rowid', pa.int64()),
+--       ('timestamp', pa.timestamp('us')),
+--       ('host', pa.string()),
+--       ('database_name', pa.string()),
+--       ('mean_time_ms', pa.float64()),
+--       ('source', pa.string()),
+--       ('environment', pa.string()),
+--       ('query_id', pa.string()),
+--       ('query_text', pa.string()),
+--       ('query_hash', pa.string()),
+--       ('calls', pa.int64()),
+--       ('total_time_ms', pa.float64()),
+--       ('min_time_ms', pa.float64()),
+--       ('max_time_ms', pa.float64()),
+--       ('stddev_time_ms', pa.float64()),
+--       ('rows_affected', pa.int64()),
+--       ('cache_hit_ratio', pa.float64()),
+--       ('tags', pa.string()),
+--       ('metadata', pa.string()),
+--       ('created_at', pa.timestamp('us'))
+--   ])
+--   table = db_schema.create_table(
+--       'db_queries',
+--       schema,
+--       sorting_key=['timestamp', 'host', 'database_name', 'mean_time_ms']
+--   )
 
--- Queries table
-CREATE TABLE IF NOT EXISTS db_queries (
-    id UUID PRIMARY KEY,
-    timestamp TIMESTAMP NOT NULL,
-    source VARCHAR(50) NOT NULL,
-    host VARCHAR(255) NOT NULL,
-    database_name VARCHAR(255) NOT NULL,
-    environment VARCHAR(50),
-    query_id VARCHAR(255) NOT NULL,
-    query_text TEXT,
-    query_hash VARCHAR(64),
-    calls BIGINT,
-    total_time_ms DOUBLE PRECISION,
-    mean_time_ms DOUBLE PRECISION,
-    min_time_ms DOUBLE PRECISION,
-    max_time_ms DOUBLE PRECISION,
-    stddev_time_ms DOUBLE PRECISION,
-    rows_affected BIGINT,
-    cache_hit_ratio DOUBLE PRECISION,
-    tags JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE observability.db_queries (
+    vastdb_rowid INT64,   -- Optional: for row-level access/control
+    timestamp TIMESTAMP,  -- Sorting key 1: Primary filter (time-series queries)
+    host STRING,          -- Sorting key 2: Common filter (per-host queries)
+    database_name STRING, -- Sorting key 3: Common filter (per-database queries)
+    mean_time_ms DOUBLE,  -- Sorting key 4: Performance filter (find slow queries)
+    source STRING,
+    environment STRING,
+    query_id STRING,
+    query_text STRING,
+    query_hash STRING,
+    calls INT64,
+    total_time_ms DOUBLE,
+    min_time_ms DOUBLE,
+    max_time_ms DOUBLE,
+    stddev_time_ms DOUBLE,
+    rows_affected INT64,
+    cache_hit_ratio DOUBLE,
+    tags STRING,          -- JSON serialized as string
+    metadata STRING,      -- JSON serialized as string
+    created_at TIMESTAMP
 );
 
-CREATE INDEX idx_queries_timestamp ON db_queries(timestamp DESC);
-CREATE INDEX idx_queries_source_host ON db_queries(source, host, database_name);
-CREATE INDEX idx_queries_hash ON db_queries(query_hash);
-CREATE INDEX idx_queries_mean_time ON db_queries(mean_time_ms DESC);
+-- =============================================================================
+-- Usage Notes
+-- =============================================================================
+--
+-- 1. Sorting Keys (up to 4 columns):
+--    - Optimize for your most common query patterns
+--    - Order by selectivity: timestamp (time ranges) → categorical filters
+--    - VAST uses these for efficient data organization and pruning
+--
+-- 2. Row IDs (vastdb_rowid):
+--    - Auto-allocated by default (use_external_row_ids_allocation=False)
+--    - User-controlled if needed (use_external_row_ids_allocation=True)
+--    - Useful for: Point queries, range scans, data lineage
+--    - Query example: SELECT * FROM db_metrics WHERE vastdb_rowid > 1000 AND vastdb_rowid < 2000
+--
+-- 3. Column Ordering:
+--    - Place sorting key columns first
+--    - Then frequently accessed columns
+--    - Then rarely accessed columns
+--    - VAST columnar storage benefits from this ordering
+--
+-- 4. Query Optimization Examples:
+--    - Time range: WHERE timestamp BETWEEN '2025-01-01' AND '2025-01-02'
+--    - Host filter: WHERE host = 'prod-db-1'
+--    - Slow queries: WHERE mean_time_ms > 1000 (uses sorting key!)
+--    - Combined: WHERE timestamp > '2025-01-01' AND host = 'prod-db-1' AND log_level = 'error'
