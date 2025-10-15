@@ -1,0 +1,17 @@
+services:
+  processor:
+    build:
+      # The build context is now the root of the project
+      context: .
+      # We point to the Dockerfile inside the processor directory
+      dockerfile: ./processor/Dockerfile
+    container_name: processor
+    networks:
+      - observability
+    env_file:
+      - ./processor/.env
+    restart: unless-stopped
+
+networks:
+  observability:
+    external: true
