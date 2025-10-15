@@ -7,13 +7,13 @@ Usage:
     python vast_table_creator.py
 
     # Using command-line arguments (overrides .env):
-    python vast_table_creator.py --endpoint http://vast.example.com:5432 \\
-                                  --bucket observability --schema observability \\
+    python vast_table_creator.py --endpoint http://vast.example.com:5432 \
+                                  --bucket observability --schema observability \
                                   --access-key YOUR_KEY --secret-key YOUR_SECRET
 
     # With HTTPS:
-    python vast_table_creator.py --endpoint https://vast.example.com \\
-                                  --bucket observability --schema observability \\
+    python vast_table_creator.py --endpoint https://vast.example.com \
+                                  --bucket observability --schema observability \
                                   --access-key YOUR_KEY --secret-key YOUR_SECRET
 """
 
@@ -25,8 +25,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-def create_metrics_table(schema, use_row_ids: bool = False):
-    """Create db_metrics table with optimized sorting keys."""
+def supports_sorting_keys(vast_version):
+    """Check if VAST version supports sorting keys (5.4+)."""
+    if vast_version is None or len(vast_version) < 2:
+        return False
+    major, minor = vast_version[0], vast_version[1]
+    return (major, minor) >= (5, 4)
+
+
+def create_metrics_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
+    """Create db_metrics table with optimized sorting keys (if supported)."""
     
     columns = [
         ('timestamp', pa.timestamp('us')),       # Sorting key 1: Time-series queries
@@ -50,24 +58,29 @@ def create_metrics_table(schema, use_row_ids: bool = False):
     
     arrow_schema = pa.schema(columns)
     
-    # Create table with sorting keys (up to 4 columns)
-    table = schema.create_table(
-        'db_metrics',
-        arrow_schema,
-        fail_if_exists=False,  # Allow recreation
-        use_external_row_ids_allocation=use_row_ids,
-        sorting_key=['timestamp', 'host', 'database_name', 'metric_name']
-    )
+    # Create table with sorting keys if supported
+    create_kwargs = {
+        'fail_if_exists': False,
+        'use_external_row_ids_allocation': use_row_ids,
+    }
+    
+    if supports_sorting:
+        create_kwargs['sorting_key'] = ['timestamp', 'host', 'database_name', 'metric_name']
+    
+    table = schema.create_table('db_metrics', arrow_schema, **create_kwargs)
     
     print(f"✓ Created table: db_metrics")
-    print(f"  Sorting keys: timestamp, host, database_name, metric_name")
+    if supports_sorting:
+        print(f"  Sorting keys: timestamp, host, database_name, metric_name")
+    else:
+        print(f"  Sorting keys: Not supported (VAST version < 5.4)")
     print(f"  Row IDs: {'External (user-controlled)' if use_row_ids else 'Internal (auto-allocated)'}")
     
     return table
 
 
-def create_logs_table(schema, use_row_ids: bool = False):
-    """Create db_logs table with optimized sorting keys."""
+def create_logs_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
+    """Create db_logs table with optimized sorting keys (if supported)."""
     
     columns = [
         ('timestamp', pa.timestamp('us')),       # Sorting key 1: Time-series queries
@@ -89,23 +102,28 @@ def create_logs_table(schema, use_row_ids: bool = False):
     
     arrow_schema = pa.schema(columns)
     
-    table = schema.create_table(
-        'db_logs',
-        arrow_schema,
-        fail_if_exists=False,
-        use_external_row_ids_allocation=use_row_ids,
-        sorting_key=['timestamp', 'host', 'database_name', 'log_level']
-    )
+    create_kwargs = {
+        'fail_if_exists': False,
+        'use_external_row_ids_allocation': use_row_ids,
+    }
+    
+    if supports_sorting:
+        create_kwargs['sorting_key'] = ['timestamp', 'host', 'database_name', 'log_level']
+    
+    table = schema.create_table('db_logs', arrow_schema, **create_kwargs)
     
     print(f"✓ Created table: db_logs")
-    print(f"  Sorting keys: timestamp, host, database_name, log_level")
+    if supports_sorting:
+        print(f"  Sorting keys: timestamp, host, database_name, log_level")
+    else:
+        print(f"  Sorting keys: Not supported (VAST version < 5.4)")
     print(f"  Row IDs: {'External (user-controlled)' if use_row_ids else 'Internal (auto-allocated)'}")
     
     return table
 
 
-def create_queries_table(schema, use_row_ids: bool = False):
-    """Create db_queries table with optimized sorting keys."""
+def create_queries_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
+    """Create db_queries table with optimized sorting keys (if supported)."""
     
     columns = [
         ('timestamp', pa.timestamp('us')),       # Sorting key 1: Time-series queries
@@ -135,16 +153,21 @@ def create_queries_table(schema, use_row_ids: bool = False):
     
     arrow_schema = pa.schema(columns)
     
-    table = schema.create_table(
-        'db_queries',
-        arrow_schema,
-        fail_if_exists=False,
-        use_external_row_ids_allocation=use_row_ids,
-        sorting_key=['timestamp', 'host', 'database_name', 'mean_time_ms']
-    )
+    create_kwargs = {
+        'fail_if_exists': False,
+        'use_external_row_ids_allocation': use_row_ids,
+    }
+    
+    if supports_sorting:
+        create_kwargs['sorting_key'] = ['timestamp', 'host', 'database_name', 'mean_time_ms']
+    
+    table = schema.create_table('db_queries', arrow_schema, **create_kwargs)
     
     print(f"✓ Created table: db_queries")
-    print(f"  Sorting keys: timestamp, host, database_name, mean_time_ms")
+    if supports_sorting:
+        print(f"  Sorting keys: timestamp, host, database_name, mean_time_ms")
+    else:
+        print(f"  Sorting keys: Not supported (VAST version < 5.4)")
     print(f"  Row IDs: {'External (user-controlled)' if use_row_ids else 'Internal (auto-allocated)'}")
     
     return table
@@ -212,13 +235,21 @@ def main():
     print(f"  Endpoint: {args.endpoint}")
     print(f"  Bucket: {args.bucket}")
     print(f"  Schema: {args.schema}")
-    print()
     
     session = vastdb.connect(
         endpoint=args.endpoint,
         access=args.access_key,
         secret=args.secret_key
     )
+    
+    # Check VAST version for sorting key support
+    vast_version = session.api.vast_version
+    version_str = '.'.join(map(str, vast_version)) if vast_version else 'Unknown'
+    supports_sorting = supports_sorting_keys(vast_version)
+    
+    print(f"  VAST Version: {version_str}")
+    print(f"  Sorting Keys: {'Supported' if supports_sorting else 'Not supported (requires 5.4+)'}")
+    print()
     
     # Use transaction to access bucket and schema
     with session.transaction() as tx:
@@ -249,13 +280,13 @@ def main():
         print("Creating tables...")
         print()
         
-        create_metrics_table(db_schema, use_row_ids=args.use_row_ids)
+        create_metrics_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
         print()
         
-        create_logs_table(db_schema, use_row_ids=args.use_row_ids)
+        create_logs_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
         print()
         
-        create_queries_table(db_schema, use_row_ids=args.use_row_ids)
+        create_queries_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
         print()
     
     # Transaction auto-commits when exiting context
@@ -265,15 +296,15 @@ def main():
     print()
     print("Query examples:")
     print()
-    print("  # Time range query (uses sorting key)")
+    print("  # Time range query (uses sorting key if available)")
     print(f"  SELECT * FROM {args.schema}.db_metrics")
     print("  WHERE timestamp BETWEEN '2025-01-01' AND '2025-01-02'")
     print()
-    print("  # Host + time query (uses sorting keys)")
+    print("  # Host + time query (uses sorting keys if available)")
     print(f"  SELECT * FROM {args.schema}.db_logs")
     print("  WHERE timestamp > '2025-01-01' AND host = 'prod-db-1'")
     print()
-    print("  # Slow queries (uses sorting key on mean_time_ms)")
+    print("  # Slow queries (uses sorting key on mean_time_ms if available)")
     print(f"  SELECT * FROM {args.schema}.db_queries")
     print("  WHERE mean_time_ms > 1000")
     print("  ORDER BY mean_time_ms DESC")
