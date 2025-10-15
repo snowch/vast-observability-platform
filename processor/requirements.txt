@@ -1,0 +1,9 @@
+# Kafka client
+confluent-kafka==2.3.0
+
+# Configuration and logging
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+structlog==24.1.0
+
+# The vastdb-observability library will be installed from the local copy
