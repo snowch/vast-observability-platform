@@ -29,7 +29,7 @@ class KafkaProcessorService:
         # Configure Kafka consumer
         consumer_conf = {
             'bootstrap.servers': self.settings.KAFKA_BOOTSTRAP_SERVERS,
-            'group.id': self.settings.KAFKA_GROUP_ID, # <-- FIX WAS HERE
+            'group.id': self.settings.KAFKA_GROUP_ID,
             'auto.offset.reset': 'earliest',
             'enable.auto.commit': False
         }
@@ -75,26 +75,28 @@ class KafkaProcessorService:
                     value = msg.value()
                     
                     if topic == 'otel-metrics':
-                        # Decompress the gzipped data
-                        decompressed_data = gzip.decompress(value)
+                        # --- ROBUSTNESS FIX ---
+                        # Try to decompress, but fall back if it's not gzipped.
+                        try:
+                            decompressed_data = gzip.decompress(value)
+                        except gzip.BadGzipFile:
+                            decompressed_data = value # Assume it's not compressed
                         
                         # Parse the Protobuf message
                         metrics_request = ExportMetricsServiceRequest()
                         metrics_request.ParseFromString(decompressed_data)
                         
                         # Convert to Dict for the processor
-                        # OTLP can batch multiple resource metrics, so we loop through them
                         for resource_metric in metrics_request.resource_metrics:
                             message_data = MessageToDict(resource_metric)
                             self.batch_processor.add(message_data)
-
                     else:
                         # Handle JSON messages for other topics
                         message_data = json.loads(value.decode('utf-8'))
                         self.batch_processor.add(message_data)
 
                     self.consumer.commit(asynchronous=True)
-                except (json.JSONDecodeError, gzip.BadGzipFile, Exception) as e:
+                except (json.JSONDecodeError, Exception) as e:
                     logger.error("message_processing_failed", error=str(e), topic=msg.topic())
 
                 # Check if batch should be flushed
