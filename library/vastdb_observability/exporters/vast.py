@@ -57,7 +57,7 @@ class VASTExporter:
             'message': pa.array([e.message for e in events]),
             'tags': pa.array([json.dumps(e.tags) for e in events]),
             'attributes': pa.array([json.dumps(e.attributes) for e in events]),
-            'trace_id': pa.array([e.trace_id for e in events]),
+            'trace_id': pa.array([e.trace_id for e in events], type=pa.string()),
             'id': pa.array([e.id for e in events]),
             'created_at': pa.array([self._to_us(e.created_at) for e in events], type=pa.timestamp('us')),
         }
@@ -81,7 +81,7 @@ class VASTExporter:
             'environment': pa.array([m.environment for m in metrics]),
             'metric_value': pa.array([m.metric_value for m in metrics]),
             'metric_type': pa.array([m.metric_type for m in metrics]),
-            'unit': pa.array([m.unit for m in metrics]),
+            'unit': pa.array([m.unit for m in metrics], type=pa.string()),
             'tags': pa.array([json.dumps(m.tags) for m in metrics]),
             'metadata': pa.array([json.dumps(m.metadata) for m in metrics]),
             'id': pa.array([m.id for m in metrics]),
@@ -94,14 +94,39 @@ class VASTExporter:
             table.insert(batch)
         self.logger.info("metrics_exported", count=len(metrics))
 
+    async def export_entities(self, entities: List[Entity]):
+        """Exports a batch of entities to the 'entities' table."""
+        if not entities:
+            return
+
+        arrays = {
+            'entity_id': pa.array([e.entity_id for e in entities]),
+            'entity_type': pa.array([e.entity_type for e in entities]),
+            'first_seen': pa.array([self._to_us(e.first_seen) for e in entities], type=pa.timestamp('us')),
+            'last_seen': pa.array([self._to_us(e.last_seen) for e in entities], type=pa.timestamp('us')),
+            'attributes': pa.array([json.dumps(e.attributes) for e in entities]),
+        }
+        batch = pa.RecordBatch.from_pydict(arrays)
+
+        with self.session.transaction() as tx:
+            table = tx.bucket(self.bucket_name).schema(self.schema_name).table('entities')
+            # In a real system, you would use an UPSERT operation here.
+            # For this example, a simple INSERT demonstrates the functionality.
+            table.insert(batch)
+        self.logger.info("entities_exported", count=len(entities))
+
+
     async def export_batch(self, batch: ProcessorBatch):
-        """Exports a mixed batch of events and metrics."""
+        """Exports a mixed batch of events, metrics, and entities."""
         if batch.is_empty():
             return
 
+        # Export all data types present in the batch
         if batch.events:
             await self.export_events(batch.events)
         if batch.metrics:
             await self.export_metrics(batch.metrics)
+        if batch.entities:
+            await self.export_entities(batch.entities)
             
-        self.logger.info("batch_exported", total=batch.size())
+        self.logger.info("batch_exported", total=batch.size(), events=len(batch.events), metrics=len(batch.metrics), entities=len(batch.entities))
