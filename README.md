@@ -34,8 +34,9 @@ make copy-test-data-to-library
 ### 3. Run Library Tests
 ```bash
 cd library
-pip install -r requirements.txt
-pytest tests/test_integration.py -v
+pip install -r requirements-dev.txt
+pip install -e .
+python -m pytest tests/test_processors.py -v
 ```
 
 ## Projects
