@@ -1,16 +1,31 @@
-"""A simple usage example for the vastdb-observability library with the new schema."""
+"""
+A simple usage example for the vastdb-observability library, demonstrating how
+to process and export multiple types of telemetry (logs, queries, and metrics)
+using the new, extensible, entity-centric schema.
+"""
 import asyncio
-from vastdb_observability import QueriesProcessor, VASTExporter
+from vastdb_observability import (
+    LogsProcessor, 
+    QueriesProcessor, 
+    MetricsProcessor, 
+    VASTExporter
+)
 from vastdb_observability.config import ProcessorConfig
 
 async def main():
-    # Load configuration from environment or .env file
+    """
+    Processes one of each telemetry type (log, query, metric) and exports them
+    to their respective tables in VAST Database.
+    """
+    # 1. Load configuration from environment or .env file
     config = ProcessorConfig()
 
-    # Initialize the processor for query data
-    processor = QueriesProcessor()
+    # 2. Initialize all necessary processors
+    logs_processor = LogsProcessor()
+    queries_processor = QueriesProcessor()
+    metrics_processor = MetricsProcessor()
 
-    # Initialize the exporter with VAST DB connection details
+    # 3. Initialize the VAST Exporter
     exporter = VASTExporter(
         endpoint=config.vast_endpoint,
         access_key=config.vast_access_key,
@@ -19,36 +34,72 @@ async def main():
         schema_name=config.vast_schema
     )
     await exporter.connect()
+    print(f"✓ Connected to VAST DB at {config.vast_endpoint}")
+    print("-" * 40)
 
-    # Simulate raw query data coming from a collector
+    # 4. Simulate different types of raw telemetry data
+    
+    # A raw log about database deadlocks
+    raw_log = {
+        "timestamp": "2025-10-15T14:30:00.123Z",
+        "source": "postgresql",
+        "data_type": "log",
+        "host": "pg-prod-A1",
+        "tags": {"log_level": "warning"},
+        "payload": {"event_type": "deadlocks", "count": 3, "details": "..."},
+    }
+
+    # Raw query analytics for a slow query
     raw_query = {
-        "timestamp": "2025-10-14T10:30:00.123456Z",
+        "timestamp": "2025-10-15T14:30:05.456Z",
         "source": "postgresql",
         "data_type": "query",
-        "host": "postgres-prod-1",
-        "database": "app_db",
+        "host": "pg-prod-A1",
         "payload": {
-            "queryid": "1234567890",
-            "query": "SELECT * FROM users WHERE id = $1",
-            "calls": 1523,
-            "mean_time_ms": 29.63,
+            "query": "SELECT ... FROM orders JOIN customers ...",
+            "calls": 50,
+            "mean_time_ms": 1250.7,
         },
     }
 
-    # Process the raw data into a structured Event object
-    processed_event = processor.process(raw_query, enrich=True)
+    # A raw OTLP metric for CPU utilization
+    raw_metric_otlp = {
+        "resource": { "attributes": [ {"key": "host.name", "value": {"stringValue": "pg-prod-A1"}}, {"key": "db.system", "value": {"stringValue": "postgresql"}} ] },
+        "scopeMetrics": [{
+            "metrics": [{
+                "name": "system.cpu.utilization", "unit": "%",
+                "gauge": { "dataPoints": [{ "timeUnixNano": "1697376610000000000", "asDouble": "0.85" }] }
+            }]
+        }]
+    }
 
-    print(f"Processed Event Type: {processed_event.event_type}")
-    print(f"Entity: {processed_event.entity_id}")
-    print(f"Message: {processed_event.message}")
-    print(f"Performance Tag: {processed_event.tags.get('performance')}")
+    # 5. Process each piece of raw data
+    
+    processed_log_event = logs_processor.process(raw_log)
+    print("Processed Log as Event:")
+    print(f"  Entity: {processed_log_event.entity_id}, Message: {processed_log_event.message}")
 
-    # Export the processed event to the 'events' table in VAST Database
-    await exporter.export_events([processed_event])
-    print("\n✓ Exported event to VAST Database")
+    processed_query_event = queries_processor.process(raw_query)
+    print("Processed Query as Event:")
+    print(f"  Entity: {processed_query_event.entity_id}, Message: {processed_query_event.message}")
+
+    processed_metrics = metrics_processor.process(raw_metric_otlp)
+    print("Processed OTLP data as Metric:")
+    print(f"  Entity: {processed_metrics[0].entity_id}, Metric: {processed_metrics[0].metric_name}, Value: {processed_metrics[0].metric_value}")
+    print("-" * 40)
+    
+    # 6. Export the processed data to VAST DB
+    
+    # Combine log and query events into one list
+    all_events = [processed_log_event, processed_query_event]
+    
+    await exporter.export_events(all_events)
+    print(f"✓ Exported {len(all_events)} events to the 'events' table.")
+    
+    await exporter.export_metrics(processed_metrics)
+    print(f"✓ Exported {len(processed_metrics)} metrics to the 'metrics' table.")
 
     await exporter.disconnect()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
