@@ -12,12 +12,14 @@ class Settings(BaseSettings):
     VAST_SECRET_KEY: str = "your-secret-key"
     VAST_BUCKET: str = "observability"
 
-    # --- FIX ---
-    # Add the missing batching settings that the BatchProcessor requires.
-    # These names must match the attributes expected by the ProcessorConfig
-    # in the library (max_batch_size, max_batch_age_seconds).
     max_batch_size: int = 100
     max_batch_age_seconds: int = 10
+    enable_enrichment: bool = True
+    enable_aggregation: bool = False
+    aggregation_window: str = "5m"
+    validate_data: bool = True
+    drop_invalid: bool = False
+
 
     # Pydantic settings to load from a .env file
     class Config:
