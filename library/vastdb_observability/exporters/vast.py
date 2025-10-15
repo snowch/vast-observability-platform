@@ -110,23 +110,21 @@ class VASTExporter:
 
         with self.session.transaction() as tx:
             table = tx.bucket(self.bucket_name).schema(self.schema_name).table('entities')
-            # In a real system, you would use an UPSERT operation here.
-            # For this example, a simple INSERT demonstrates the functionality.
             table.insert(batch)
         self.logger.info("entities_exported", count=len(entities))
 
 
     async def export_batch(self, batch: ProcessorBatch):
-        """Exports a mixed batch of events, metrics, and entities."""
+        """Exports a mixed batch of events and metrics."""
         if batch.is_empty():
             return
 
-        # Export all data types present in the batch
+        # --- FIX IS HERE ---
+        # Only export events and metrics, since the batch object
+        # does not contain an 'entities' attribute.
         if batch.events:
             await self.export_events(batch.events)
         if batch.metrics:
             await self.export_metrics(batch.metrics)
-        if batch.entities:
-            await self.export_entities(batch.entities)
             
-        self.logger.info("batch_exported", total=batch.size(), events=len(batch.events), metrics=len(batch.metrics), entities=len(batch.entities))
+        self.logger.info("batch_exported", total=batch.size(), events=len(batch.events), metrics=len(batch.metrics))
