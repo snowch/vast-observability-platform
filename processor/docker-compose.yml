@@ -10,7 +10,7 @@ services:
       - observability
     # Load the .env file from the processor directory
     env_file:
-      - ./processor/.env
+      - /.env
     restart: unless-stopped
 
 networks:
