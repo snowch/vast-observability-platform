@@ -3,11 +3,15 @@
 Create VAST Database tables for observability data using official VAST API.
 
 Usage:
+    # Using .env file (recommended):
+    python vast_table_creator.py
+
+    # Using command-line arguments (overrides .env):
     python vast_table_creator.py --endpoint http://vast.example.com:5432 \\
                                   --bucket observability --schema observability \\
                                   --access-key YOUR_KEY --secret-key YOUR_SECRET
 
-    # Or with HTTPS:
+    # With HTTPS:
     python vast_table_creator.py --endpoint https://vast.example.com \\
                                   --bucket observability --schema observability \\
                                   --access-key YOUR_KEY --secret-key YOUR_SECRET
@@ -16,6 +20,9 @@ Usage:
 import argparse
 import pyarrow as pa
 import vastdb
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 
 
 def create_metrics_table(schema, use_row_ids: bool = False):
@@ -145,15 +152,36 @@ def create_queries_table(schema, use_row_ids: bool = False):
 
 def main():
     """Main entry point."""
+    # Load .env file if it exists
+    env_path = Path('.env')
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"✓ Loaded configuration from .env file")
+    else:
+        print(f"ℹ No .env file found, using command-line arguments only")
+    
+    # Get defaults from environment variables
+    default_endpoint = os.getenv('VAST_ENDPOINT')
+    default_bucket = os.getenv('VAST_BUCKET', 'observability')
+    default_schema = os.getenv('VAST_SCHEMA', 'observability')
+    default_access_key = os.getenv('VAST_ACCESS_KEY')
+    default_secret_key = os.getenv('VAST_SECRET_KEY')
+    
     parser = argparse.ArgumentParser(
-        description='Create VAST Database tables for observability data'
+        description='Create VAST Database tables for observability data',
+        epilog='Values can be provided via .env file or command-line arguments. '
+               'Command-line arguments override .env values.'
     )
-    parser.add_argument('--endpoint', required=True, 
+    parser.add_argument('--endpoint', default=default_endpoint,
                        help='VAST endpoint URL (e.g., http://vast.example.com:5432 or https://vast.example.com)')
-    parser.add_argument('--bucket', required=True, help='Bucket name')
-    parser.add_argument('--schema', default='observability', help='Schema name')
-    parser.add_argument('--access-key', required=True, help='VAST access key')
-    parser.add_argument('--secret-key', required=True, help='VAST secret key')
+    parser.add_argument('--bucket', default=default_bucket,
+                       help='Bucket name (default: %(default)s)')
+    parser.add_argument('--schema', default=default_schema,
+                       help='Schema name (default: %(default)s)')
+    parser.add_argument('--access-key', default=default_access_key,
+                       help='VAST access key')
+    parser.add_argument('--secret-key', default=default_secret_key,
+                       help='VAST secret key')
     parser.add_argument('--use-row-ids', action='store_true', 
                        help='Use external row ID allocation (user-controlled)')
     parser.add_argument('--recreate', action='store_true',
@@ -161,6 +189,19 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate required parameters
+    missing = []
+    if not args.endpoint:
+        missing.append('--endpoint (or VAST_ENDPOINT in .env)')
+    if not args.access_key:
+        missing.append('--access-key (or VAST_ACCESS_KEY in .env)')
+    if not args.secret_key:
+        missing.append('--secret-key (or VAST_SECRET_KEY in .env)')
+    
+    if missing:
+        parser.error(f"Missing required parameters: {', '.join(missing)}")
+    
+    print()
     print("=" * 70)
     print("VAST Database - Observability Tables Setup")
     print("=" * 70)
