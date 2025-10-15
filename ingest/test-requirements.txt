@@ -1,0 +1,9 @@
+# Requirements for test data collection and conversion
+# Install with: pip install -r test-requirements.txt
+
+# OTLP Protocol Buffers support
+opentelemetry-proto>=1.20.0
+protobuf>=4.0.0
+
+# Optional: For better protobuf support
+grpcio>=1.50.0

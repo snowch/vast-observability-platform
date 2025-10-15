@@ -1,0 +1,153 @@
+[
+  {
+    "resource": {
+      "attributes": [
+        {
+          "key": "service.name",
+          "value": {
+            "stringValue": "otel-collector"
+          }
+        },
+        {
+          "key": "deployment.environment",
+          "value": {
+            "stringValue": "development"
+          }
+        },
+        {
+          "key": "host.name",
+          "value": {
+            "stringValue": "postgres"
+          }
+        },
+        {
+          "key": "db.system",
+          "value": {
+            "stringValue": "postgresql"
+          }
+        },
+        {
+          "key": "db.name",
+          "value": {
+            "stringValue": "app_db"
+          }
+        }
+      ]
+    },
+    "scope_metrics": [
+      {
+        "scope": {
+          "name": "otelcol/postgresqlreceiver",
+          "version": "0.91.0"
+        },
+        "metrics": [
+          {
+            "name": "postgresql.blocks_read",
+            "description": "Number of disk blocks read",
+            "unit": "blocks",
+            "gauge": {
+              "data_points": [
+                {
+                  "time_unix_nano": "1697280000000000000",
+                  "as_int": "12345",
+                  "attributes": [
+                    {
+                      "key": "database",
+                      "value": {
+                        "stringValue": "app_db"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "name": "postgresql.commits",
+            "description": "Number of committed transactions",
+            "unit": "commits",
+            "sum": {
+              "data_points": [
+                {
+                  "time_unix_nano": "1697280000000000000",
+                  "as_int": "567",
+                  "attributes": [
+                    {
+                      "key": "database",
+                      "value": {
+                        "stringValue": "app_db"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "name": "postgresql.backends",
+            "description": "Number of active connections",
+            "unit": "connections",
+            "gauge": {
+              "data_points": [
+                {
+                  "time_unix_nano": "1697280000000000000",
+                  "as_int": "8",
+                  "attributes": [
+                    {
+                      "key": "database",
+                      "value": {
+                        "stringValue": "app_db"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "name": "postgresql.deadlocks",
+            "description": "Number of deadlocks detected",
+            "unit": "deadlocks",
+            "sum": {
+              "data_points": [
+                {
+                  "time_unix_nano": "1697280000000000000",
+                  "as_int": "2",
+                  "attributes": [
+                    {
+                      "key": "database",
+                      "value": {
+                        "stringValue": "app_db"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "name": "postgresql.db_size",
+            "description": "Database size in bytes",
+            "unit": "bytes",
+            "gauge": {
+              "data_points": [
+                {
+                  "time_unix_nano": "1697280000000000000",
+                  "as_int": "8388608",
+                  "attributes": [
+                    {
+                      "key": "database",
+                      "value": {
+                        "stringValue": "app_db"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
