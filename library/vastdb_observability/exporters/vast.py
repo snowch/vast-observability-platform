@@ -1,13 +1,12 @@
 """
-VAST Exporter - Fixed to use official VAST API with transactions and buckets.
-
-Replace library/vastdb_observability/exporters/vast.py with this implementation.
+VAST Exporter - Updated for the new extensible, entity-centric schema.
+This module handles writing processed data to the 'events', 'metrics', and
+'entities' tables in VAST Database using the official VAST API.
 """
-
 import pyarrow as pa
-from typing import List, Optional
+from typing import List
 import structlog
-from vastdb_observability.models import ProcessedMetric, ProcessedLog, ProcessedQuery, ProcessorBatch
+from vastdb_observability.models import Event, Metric, Entity, ProcessorBatch
 import json
 from datetime import datetime
 
@@ -15,29 +14,9 @@ logger = structlog.get_logger()
 
 
 class VASTExporter:
-    """Export processed data to VAST Database using PyArrow and official VAST API."""
+    """Exports processed data to VAST Database using the extensible schema."""
 
-    def __init__(
-        self,
-        endpoint: str,  # Full URL with protocol: http://vast.example.com:5432 or https://vast.example.com
-        access_key: str,
-        secret_key: str,
-        bucket_name: str,  # Changed from "database"
-        schema_name: str = "observability",
-    ):
-        """
-        Initialize VAST exporter.
-        
-        Args:
-            endpoint: VAST endpoint URL with protocol (http://host:port or https://host:port)
-                     Examples: 
-                     - http://vast.example.com:5432
-                     - https://vast.example.com
-            access_key: VAST access key
-            secret_key: VAST secret key
-            bucket_name: Bucket name (was "database" in old API)
-            schema_name: Schema name (default: observability)
-        """
+    def __init__(self, endpoint: str, access_key: str, secret_key: str, bucket_name: str, schema_name: str = "observability"):
         self.endpoint = endpoint
         self.access_key = access_key
         self.secret_key = secret_key
@@ -45,55 +24,59 @@ class VASTExporter:
         self.schema_name = schema_name
         self.session = None
         self.logger = logger.bind(exporter="vast")
-        
-        # Validate endpoint format
+
         if not endpoint.startswith(('http://', 'https://')):
-            raise ValueError(
-                f"Endpoint must start with http:// or https://, got: {endpoint}\n"
-                f"Examples: http://vast.example.com:5432 or https://vast.example.com"
-            )
+            raise ValueError(f"Endpoint must start with http:// or https://, got: {endpoint}")
 
     async def connect(self):
-        """Establish connection to VAST Database."""
+        """Establishes a session with the VAST Database."""
         import vastdb
-        
-        self.session = vastdb.connect(
-            endpoint=self.endpoint,
-            access=self.access_key,
-            secret=self.secret_key
-        )
-        
-        self.logger.info(
-            "vast_connected",
-            endpoint=self.endpoint,
-            bucket=self.bucket_name,
-            schema=self.schema_name
-        )
+        self.session = vastdb.connect(endpoint=self.endpoint, access=self.access_key, secret=self.secret_key)
+        self.logger.info("vast_connected", endpoint=self.endpoint, bucket=self.bucket_name)
 
     async def disconnect(self):
-        """Close connection."""
-        if self.session:
-            # vastdb sessions don't need explicit closing
-            self.session = None
-            self.logger.info("vast_disconnected")
+        """Closes the session."""
+        self.session = None
+        self.logger.info("vast_disconnected")
 
-    def _convert_timestamp(self, dt: datetime) -> int:
-        """Convert datetime to microseconds since epoch."""
+    def _to_us(self, dt: datetime) -> int:
+        """Converts a datetime object to microseconds since epoch."""
         return int(dt.timestamp() * 1_000_000)
 
-    async def export_metrics(self, metrics: List[ProcessedMetric]):
-        """Export metrics to db_metrics table."""
+    async def export_events(self, events: List[Event]):
+        """Exports a batch of events to the 'events' table."""
+        if not events:
+            return
+
+        arrays = {
+            'timestamp': pa.array([self._to_us(e.timestamp) for e in events], type=pa.timestamp('us')),
+            'entity_id': pa.array([e.entity_id for e in events]),
+            'event_type': pa.array([e.event_type for e in events]),
+            'source': pa.array([e.source for e in events]),
+            'environment': pa.array([e.environment for e in events]),
+            'message': pa.array([e.message for e in events]),
+            'tags': pa.array([json.dumps(e.tags) for e in events]),
+            'attributes': pa.array([json.dumps(e.attributes) for e in events]),
+            'trace_id': pa.array([e.trace_id for e in events]),
+            'id': pa.array([e.id for e in events]),
+            'created_at': pa.array([self._to_us(e.created_at) for e in events], type=pa.timestamp('us')),
+        }
+        batch = pa.RecordBatch.from_pydict(arrays)
+
+        with self.session.transaction() as tx:
+            table = tx.bucket(self.bucket_name).schema(self.schema_name).table('events')
+            table.insert(batch)
+        self.logger.info("events_exported", count=len(events))
+
+    async def export_metrics(self, metrics: List[Metric]):
+        """Exports a batch of metrics to the 'metrics' table."""
         if not metrics:
             return
 
-        # Convert to PyArrow RecordBatch with column order matching schema
-        # Sorting keys first: timestamp, host, database_name, metric_name
         arrays = {
-            'timestamp': pa.array([self._convert_timestamp(m.timestamp) for m in metrics], 
-                                 type=pa.timestamp('us')),
-            'host': pa.array([m.host for m in metrics]),
-            'database_name': pa.array([m.database_name for m in metrics]),
             'metric_name': pa.array([m.metric_name for m in metrics]),
+            'entity_id': pa.array([m.entity_id for m in metrics]),
+            'timestamp': pa.array([self._to_us(m.timestamp) for m in metrics], type=pa.timestamp('us')),
             'source': pa.array([m.source for m in metrics]),
             'environment': pa.array([m.environment for m in metrics]),
             'metric_value': pa.array([m.metric_value for m in metrics]),
@@ -101,132 +84,24 @@ class VASTExporter:
             'unit': pa.array([m.unit for m in metrics]),
             'tags': pa.array([json.dumps(m.tags) for m in metrics]),
             'metadata': pa.array([json.dumps(m.metadata) for m in metrics]),
-            'created_at': pa.array([self._convert_timestamp(m.created_at) for m in metrics],
-                                  type=pa.timestamp('us')),
             'id': pa.array([m.id for m in metrics]),
+            'created_at': pa.array([self._to_us(m.created_at) for m in metrics], type=pa.timestamp('us')),
         }
-
-        # Create RecordBatch
         batch = pa.RecordBatch.from_pydict(arrays)
-        
-        # Insert into VAST using transaction pattern
-        with self.session.transaction() as tx:
-            bucket = tx.bucket(self.bucket_name)
-            schema = bucket.schema(self.schema_name)
-            table = schema.table('db_metrics')
-            table.insert(batch)
 
+        with self.session.transaction() as tx:
+            table = tx.bucket(self.bucket_name).schema(self.schema_name).table('metrics')
+            table.insert(batch)
         self.logger.info("metrics_exported", count=len(metrics))
 
-    async def export_logs(self, logs: List[ProcessedLog]):
-        """Export logs to db_logs table."""
-        if not logs:
-            return
-
-        # Column order: timestamp, host, database_name, log_level (sorting keys first)
-        arrays = {
-            'timestamp': pa.array([self._convert_timestamp(log.timestamp) for log in logs],
-                                 type=pa.timestamp('us')),
-            'host': pa.array([log.host for log in logs]),
-            'database_name': pa.array([log.database_name for log in logs]),
-            'log_level': pa.array([log.log_level for log in logs]),
-            'source': pa.array([log.source for log in logs]),
-            'environment': pa.array([log.environment for log in logs]),
-            'event_type': pa.array([log.event_type for log in logs]),
-            'message': pa.array([log.message for log in logs]),
-            'tags': pa.array([json.dumps(log.tags) for log in logs]),
-            'metadata': pa.array([json.dumps(log.metadata) for log in logs]),
-            'created_at': pa.array([self._convert_timestamp(log.created_at) for log in logs],
-                                  type=pa.timestamp('us')),
-            'id': pa.array([log.id for log in logs]),
-        }
-
-        batch = pa.RecordBatch.from_pydict(arrays)
-        
-        # Insert using transaction
-        with self.session.transaction() as tx:
-            bucket = tx.bucket(self.bucket_name)
-            schema = bucket.schema(self.schema_name)
-            table = schema.table('db_logs')
-            table.insert(batch)
-
-        self.logger.info("logs_exported", count=len(logs))
-
-    async def export_queries(self, queries: List[ProcessedQuery]):
-        """Export queries to db_queries table."""
-        if not queries:
-            return
-
-        # Column order: timestamp, host, database_name, mean_time_ms (sorting keys first)
-        arrays = {
-            'timestamp': pa.array([self._convert_timestamp(q.timestamp) for q in queries],
-                                 type=pa.timestamp('us')),
-            'host': pa.array([q.host for q in queries]),
-            'database_name': pa.array([q.database_name for q in queries]),
-            'mean_time_ms': pa.array([q.mean_time_ms for q in queries]),
-            'source': pa.array([q.source for q in queries]),
-            'environment': pa.array([q.environment for q in queries]),
-            'query_id': pa.array([q.query_id for q in queries]),
-            'query_text': pa.array([q.query_text for q in queries]),
-            'query_hash': pa.array([q.query_hash for q in queries]),
-            'calls': pa.array([q.calls for q in queries]),
-            'total_time_ms': pa.array([q.total_time_ms for q in queries]),
-            'min_time_ms': pa.array([q.min_time_ms for q in queries]),
-            'max_time_ms': pa.array([q.max_time_ms for q in queries]),
-            'stddev_time_ms': pa.array([q.stddev_time_ms for q in queries]),
-            'rows_affected': pa.array([q.rows_affected for q in queries]),
-            'cache_hit_ratio': pa.array([q.cache_hit_ratio for q in queries]),
-            'tags': pa.array([json.dumps(q.tags) for q in queries]),
-            'metadata': pa.array([json.dumps(q.metadata) for q in queries]),
-            'created_at': pa.array([self._convert_timestamp(q.created_at) for q in queries],
-                                  type=pa.timestamp('us')),
-            'id': pa.array([q.id for q in queries]),
-        }
-
-        batch = pa.RecordBatch.from_pydict(arrays)
-        
-        # Insert using transaction
-        with self.session.transaction() as tx:
-            bucket = tx.bucket(self.bucket_name)
-            schema = bucket.schema(self.schema_name)
-            table = schema.table('db_queries')
-            table.insert(batch)
-
-        self.logger.info("queries_exported", count=len(queries))
-
     async def export_batch(self, batch: ProcessorBatch):
-        """Export a mixed batch of data."""
+        """Exports a mixed batch of events and metrics."""
         if batch.is_empty():
             return
 
+        if batch.events:
+            await self.export_events(batch.events)
         if batch.metrics:
             await self.export_metrics(batch.metrics)
-        if batch.logs:
-            await self.export_logs(batch.logs)
-        if batch.queries:
-            await self.export_queries(batch.queries)
-
+            
         self.logger.info("batch_exported", total=batch.size())
-
-
-# Example usage:
-"""
-from vastdb_observability import QueriesProcessor, VASTExporter
-
-processor = QueriesProcessor()
-exporter = VASTExporter(
-    endpoint="http://vast.example.com:5432",
-    access_key="your-access-key",
-    secret_key="your-secret-key",
-    bucket_name="observability",  # Note: "bucket" not "database"
-    schema_name="observability"
-)
-
-await exporter.connect()
-
-raw_query = {...}
-processed = processor.process(raw_query)
-await exporter.export_queries([processed])
-
-await exporter.disconnect()
-"""

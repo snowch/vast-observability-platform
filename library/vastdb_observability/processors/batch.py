@@ -1,6 +1,5 @@
 from typing import Dict, Any, Optional
-from datetime import datetime
-from vastdb_observability.models import ProcessorBatch
+from vastdb_observability.models import ProcessorBatch, Event, Metric
 from vastdb_observability.processors.metrics import MetricsProcessor
 from vastdb_observability.processors.logs import LogsProcessor
 from vastdb_observability.processors.queries import QueriesProcessor
@@ -8,7 +7,7 @@ from vastdb_observability.config import ProcessorConfig
 
 
 class BatchProcessor:
-    """Batch processor for efficient bulk operations."""
+    """Manages batching of processed Events and Metrics for efficient export."""
 
     def __init__(self, config: Optional[ProcessorConfig] = None):
         self.config = config or ProcessorConfig()
@@ -18,32 +17,38 @@ class BatchProcessor:
         self.queries_processor = QueriesProcessor(config)
 
     def add(self, message: Dict[str, Any]) -> None:
-        """Add a message to the batch."""
+        """Adds a raw message to the batch after processing it."""
         data_type = message.get("data_type", "")
 
-        if data_type == "log":
-            processed = self.logs_processor.process(message)
-            self.batch.logs.append(processed)
-        elif data_type == "query":
-            processed = self.queries_processor.process(message)
-            self.batch.queries.append(processed)
-        elif "scopeMetrics" in message:
-            processed = self.metrics_processor.process(message)
-            self.batch.metrics.extend(processed)
+        try:
+            if "scopeMetrics" in message:  # OTLP metrics payload
+                processed_metrics = self.metrics_processor.process(message)
+                self.batch.metrics.extend(processed_metrics)
+            elif data_type == "log":
+                processed_event = self.logs_processor.process(message)
+                self.batch.events.append(processed_event)
+            elif data_type == "query":
+                processed_event = self.queries_processor.process(message)
+                self.batch.events.append(processed_event)
+        except Exception:
+            # Optionally log the error
+            pass
 
     def should_flush(self) -> bool:
-        """Check if batch should be flushed."""
+        """Determines if the current batch should be flushed based on size or age."""
+        from datetime import datetime, timedelta
+
         if self.batch.size() >= self.config.max_batch_size:
             return True
-
+        
         age = datetime.utcnow() - self.batch.created_at
         if age.total_seconds() >= self.config.max_batch_age_seconds:
             return True
-
+            
         return False
 
     def get_batch(self) -> ProcessorBatch:
-        """Get current batch and reset."""
-        current = self.batch
+        """Returns the current batch and resets it."""
+        current_batch = self.batch
         self.batch = ProcessorBatch()
-        return current
+        return current_batch

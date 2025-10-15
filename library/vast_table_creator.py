@@ -2,6 +2,9 @@
 """
 Create VAST Database tables for observability data using official VAST API.
 
+This version uses the new extensible, entity-centric schema with unified 'events',
+'metrics', and 'entities' tables, allowing for easy integration of new data sources.
+
 Usage:
     # Using .env file (recommended):
     python vast_table_creator.py
@@ -11,10 +14,8 @@ Usage:
                                   --bucket observability --schema observability \
                                   --access-key YOUR_KEY --secret-key YOUR_SECRET
 
-    # With HTTPS:
-    python vast_table_creator.py --endpoint https://vast.example.com \
-                                  --bucket observability --schema observability \
-                                  --access-key YOUR_KEY --secret-key YOUR_SECRET
+    # Recreate all tables from scratch:
+    python vast_table_creator.py --recreate
 """
 
 import argparse
@@ -33,143 +34,105 @@ def supports_sorting_keys(vast_version):
     return (major, minor) >= (5, 4)
 
 
-def create_metrics_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
-    """Create db_metrics table with optimized sorting keys (if supported)."""
+def create_events_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
+    """Create the unified 'events' table for logs, queries, and other event types."""
     
     columns = [
-        ('timestamp', pa.timestamp('us')),       # Sorting key 1: Time-series queries
-        ('host', pa.string()),                   # Sorting key 2: Per-host filtering
-        ('database_name', pa.string()),          # Sorting key 3: Per-database filtering
-        ('metric_name', pa.string()),            # Sorting key 4: Metric type filtering
+        ('timestamp', pa.timestamp('us')),      # Sorting key 1: Time-series queries
+        ('entity_id', pa.string()),             # Sorting key 2: Per-entity filtering
+        ('event_type', pa.string()),            # Sorting key 3: Event type filtering
+        ('source', pa.string()),                # e.g., 'postgresql', 'cisco_ios', 'linux'
+        ('environment', pa.string()),
+        ('message', pa.string()),               # Human-readable summary
+        ('tags', pa.string()),                  # JSON as string for indexed tags
+        ('attributes', pa.string()),            # JSON as string for detailed, event-specific payload
+        ('trace_id', pa.string()),              # For correlation across events
+        ('id', pa.string()),                    # UUID for deduplication
+        ('created_at', pa.timestamp('us')),
+    ]
+    
+    if use_row_ids:
+        columns.insert(0, ('vastdb_rowid', pa.int64()))
+    
+    arrow_schema = pa.schema(columns)
+    
+    create_kwargs = {
+        'fail_if_exists': False,
+        'use_external_row_ids_allocation': use_row_ids,
+    }
+    
+    if supports_sorting:
+        create_kwargs['sorting_key'] = ['entity_id', 'timestamp', 'event_type']
+    
+    table = schema.create_table('events', arrow_schema, **create_kwargs)
+    
+    print(f"✓ Created unified table: events")
+    if supports_sorting:
+        print(f"  Sorting keys: entity_id, timestamp, event_type")
+    
+    return table
+
+
+def create_metrics_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
+    """Create the 'metrics' table, now linked to entities."""
+    
+    columns = [
+        ('metric_name', pa.string()),           # Sorting key 1: Metric name filtering
+        ('entity_id', pa.string()),             # Sorting key 2: Per-entity filtering
+        ('timestamp', pa.timestamp('us')),      # Sorting key 3: Time-series queries
         ('source', pa.string()),
         ('environment', pa.string()),
         ('metric_value', pa.float64()),
         ('metric_type', pa.string()),
         ('unit', pa.string()),
-        ('tags', pa.string()),                   # JSON as string
-        ('metadata', pa.string()),               # JSON as string
+        ('tags', pa.string()),                  # JSON as string
+        ('metadata', pa.string()),              # JSON as string
         ('created_at', pa.timestamp('us')),
-        ('id', pa.string()),                     # UUID for deduplication
+        ('id', pa.string()),
     ]
     
-    # Add vastdb_rowid if requested
     if use_row_ids:
         columns.insert(0, ('vastdb_rowid', pa.int64()))
-    
+        
     arrow_schema = pa.schema(columns)
     
-    # Create table with sorting keys if supported
-    create_kwargs = {
-        'fail_if_exists': False,
-        'use_external_row_ids_allocation': use_row_ids,
-    }
-    
+    create_kwargs = {'fail_if_exists': False}
     if supports_sorting:
-        create_kwargs['sorting_key'] = ['timestamp', 'host', 'database_name', 'metric_name']
-    
-    table = schema.create_table('db_metrics', arrow_schema, **create_kwargs)
-    
-    print(f"✓ Created table: db_metrics")
+        create_kwargs['sorting_key'] = ['metric_name', 'entity_id', 'timestamp']
+        
+    table = schema.create_table('metrics', arrow_schema, **create_kwargs)
+    print(f"✓ Created table: metrics")
     if supports_sorting:
-        print(f"  Sorting keys: timestamp, host, database_name, metric_name")
-    else:
-        print(f"  Sorting keys: Not supported (VAST version < 5.4)")
-    print(f"  Row IDs: {'External (user-controlled)' if use_row_ids else 'Internal (auto-allocated)'}")
-    
+        print(f"  Sorting keys: metric_name, entity_id, timestamp")
+        
     return table
 
 
-def create_logs_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
-    """Create db_logs table with optimized sorting keys (if supported)."""
+def create_entities_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
+    """Create the 'entities' table to store metadata about monitored systems."""
     
     columns = [
-        ('timestamp', pa.timestamp('us')),       # Sorting key 1: Time-series queries
-        ('host', pa.string()),                   # Sorting key 2: Per-host filtering
-        ('database_name', pa.string()),          # Sorting key 3: Per-database filtering
-        ('log_level', pa.string()),              # Sorting key 4: Severity filtering
-        ('source', pa.string()),
-        ('environment', pa.string()),
-        ('event_type', pa.string()),
-        ('message', pa.string()),
-        ('tags', pa.string()),                   # JSON as string
-        ('metadata', pa.string()),               # JSON as string
-        ('created_at', pa.timestamp('us')),
-        ('id', pa.string()),                     # UUID for deduplication
+        ('entity_id', pa.string()),             # Sorting key 1: Primary key
+        ('entity_type', pa.string()),           # Sorting key 2: Type filtering (e.g., 'host', 'database')
+        ('first_seen', pa.timestamp('us')),
+        ('last_seen', pa.timestamp('us')),
+        ('attributes', pa.string()),            # JSON as string for IP, OS version, etc.
     ]
     
     if use_row_ids:
         columns.insert(0, ('vastdb_rowid', pa.int64()))
-    
+
     arrow_schema = pa.schema(columns)
     
-    create_kwargs = {
-        'fail_if_exists': False,
-        'use_external_row_ids_allocation': use_row_ids,
-    }
-    
+    create_kwargs = {'fail_if_exists': False}
     if supports_sorting:
-        create_kwargs['sorting_key'] = ['timestamp', 'host', 'database_name', 'log_level']
-    
-    table = schema.create_table('db_logs', arrow_schema, **create_kwargs)
-    
-    print(f"✓ Created table: db_logs")
-    if supports_sorting:
-        print(f"  Sorting keys: timestamp, host, database_name, log_level")
-    else:
-        print(f"  Sorting keys: Not supported (VAST version < 5.4)")
-    print(f"  Row IDs: {'External (user-controlled)' if use_row_ids else 'Internal (auto-allocated)'}")
-    
-    return table
+        create_kwargs['sorting_key'] = ['entity_type', 'entity_id']
 
-
-def create_queries_table(schema, use_row_ids: bool = False, supports_sorting: bool = False):
-    """Create db_queries table with optimized sorting keys (if supported)."""
-    
-    columns = [
-        ('timestamp', pa.timestamp('us')),       # Sorting key 1: Time-series queries
-        ('host', pa.string()),                   # Sorting key 2: Per-host filtering
-        ('database_name', pa.string()),          # Sorting key 3: Per-database filtering
-        ('mean_time_ms', pa.float64()),          # Sorting key 4: Performance filtering (slow queries)
-        ('source', pa.string()),
-        ('environment', pa.string()),
-        ('query_id', pa.string()),
-        ('query_text', pa.string()),
-        ('query_hash', pa.string()),
-        ('calls', pa.int64()),
-        ('total_time_ms', pa.float64()),
-        ('min_time_ms', pa.float64()),
-        ('max_time_ms', pa.float64()),
-        ('stddev_time_ms', pa.float64()),
-        ('rows_affected', pa.int64()),
-        ('cache_hit_ratio', pa.float64()),
-        ('tags', pa.string()),                   # JSON as string
-        ('metadata', pa.string()),               # JSON as string
-        ('created_at', pa.timestamp('us')),
-        ('id', pa.string()),                     # UUID for deduplication
-    ]
-    
-    if use_row_ids:
-        columns.insert(0, ('vastdb_rowid', pa.int64()))
-    
-    arrow_schema = pa.schema(columns)
-    
-    create_kwargs = {
-        'fail_if_exists': False,
-        'use_external_row_ids_allocation': use_row_ids,
-    }
-    
+    table = schema.create_table('entities', arrow_schema, **create_kwargs)
+    print(f"✓ Created table: entities")
     if supports_sorting:
-        create_kwargs['sorting_key'] = ['timestamp', 'host', 'database_name', 'mean_time_ms']
-    
-    table = schema.create_table('db_queries', arrow_schema, **create_kwargs)
-    
-    print(f"✓ Created table: db_queries")
-    if supports_sorting:
-        print(f"  Sorting keys: timestamp, host, database_name, mean_time_ms")
-    else:
-        print(f"  Sorting keys: Not supported (VAST version < 5.4)")
-    print(f"  Row IDs: {'External (user-controlled)' if use_row_ids else 'Internal (auto-allocated)'}")
-    
+        print(f"  Sorting keys: entity_type, entity_id")
+        
     return table
 
 
@@ -191,12 +154,12 @@ def main():
     default_secret_key = os.getenv('VAST_SECRET_KEY')
     
     parser = argparse.ArgumentParser(
-        description='Create VAST Database tables for observability data',
+        description='Create VAST Database tables for an extensible observability schema.',
         epilog='Values can be provided via .env file or command-line arguments. '
                'Command-line arguments override .env values.'
     )
     parser.add_argument('--endpoint', default=default_endpoint,
-                       help='VAST endpoint URL (e.g., http://vast.example.com:5432 or https://vast.example.com)')
+                       help='VAST endpoint URL (e.g., http://vast.example.com:5432)')
     parser.add_argument('--bucket', default=default_bucket,
                        help='Bucket name (default: %(default)s)')
     parser.add_argument('--schema', default=default_schema,
@@ -224,11 +187,9 @@ def main():
     if missing:
         parser.error(f"Missing required parameters: {', '.join(missing)}")
     
-    print()
-    print("=" * 70)
-    print("VAST Database - Observability Tables Setup")
-    print("=" * 70)
-    print()
+    print("\n" + "=" * 70)
+    print("VAST Database - Extensible Observability Schema Setup")
+    print("=" * 70 + "\n")
     
     # Connect to VAST using official API
     print(f"Connecting to VAST Database...")
@@ -243,13 +204,12 @@ def main():
     )
     
     # Check VAST version for sorting key support
-    vast_version = session.api.vast_version
+    vast_version = getattr(session.api, 'vast_version', None)
     version_str = '.'.join(map(str, vast_version)) if vast_version else 'Unknown'
     supports_sorting = supports_sorting_keys(vast_version)
     
     print(f"  VAST Version: {version_str}")
-    print(f"  Sorting Keys: {'Supported' if supports_sorting else 'Not supported (requires 5.4+)'}")
-    print()
+    print(f"  Sorting Keys: {'Supported' if supports_sorting else 'Not supported (requires 5.4+)'}\n")
     
     # Use transaction to access bucket and schema
     with session.transaction() as tx:
@@ -268,54 +228,42 @@ def main():
         # Drop existing tables if recreate flag is set
         if args.recreate:
             print("Dropping existing tables...")
-            for table_name in ['db_metrics', 'db_logs', 'db_queries']:
+            # Include old table names to clean up previous schema versions
+            for table_name in ['events', 'metrics', 'entities', 'db_logs', 'db_queries', 'db_metrics']:
                 try:
                     db_schema.drop_table(table_name)
                     print(f"  ✓ Dropped: {table_name}")
-                except:
-                    print(f"  - Not found: {table_name}")
+                except Exception:
+                    # Ignore if table doesn't exist
+                    pass
             print()
         
         # Create tables
-        print("Creating tables...")
+        print("Creating tables with new extensible schema...")
+        print()
+        
+        create_events_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
         print()
         
         create_metrics_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
         print()
         
-        create_logs_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
-        print()
-        
-        create_queries_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
+        create_entities_table(db_schema, use_row_ids=args.use_row_ids, supports_sorting=supports_sorting)
         print()
     
-    # Transaction auto-commits when exiting context
     print("=" * 70)
     print("✓ All tables created successfully!")
-    print("=" * 70)
-    print()
-    print("Query examples:")
-    print()
-    print("  # Time range query (uses sorting key if available)")
-    print(f"  SELECT * FROM {args.schema}.db_metrics")
-    print("  WHERE timestamp BETWEEN '2025-01-01' AND '2025-01-02'")
-    print()
-    print("  # Host + time query (uses sorting keys if available)")
-    print(f"  SELECT * FROM {args.schema}.db_logs")
-    print("  WHERE timestamp > '2025-01-01' AND host = 'prod-db-1'")
-    print()
-    print("  # Slow queries (uses sorting key on mean_time_ms if available)")
-    print(f"  SELECT * FROM {args.schema}.db_queries")
-    print("  WHERE mean_time_ms > 1000")
-    print("  ORDER BY mean_time_ms DESC")
-    print()
-    
-    if args.use_row_ids:
-        print("  # Row ID range query")
-        print(f"  SELECT * FROM {args.schema}.db_metrics")
-        print("  WHERE vastdb_rowid > 1000 AND vastdb_rowid < 2000")
-        print()
-
+    print("=" * 70 + "\n")
+    print("Query examples for the new schema:\n")
+    print("  # Find all events for a specific host")
+    print(f"  SELECT * FROM {args.schema}.events")
+    print("  WHERE entity_id = 'prod-db-1' AND timestamp > '2025-01-01'\n")
+    print("  # Find all slow MongoDB queries")
+    print(f"  SELECT * FROM {args.schema}.events")
+    print("  WHERE event_type = 'mongo_slow_query' AND source = 'mongodb'\n")
+    print("  # Get CPU usage for a specific host")
+    print(f"  SELECT * FROM {args.schema}.metrics")
+    print("  WHERE metric_name = 'system.cpu.utilization' AND entity_id = 'web-server-5'\n")
 
 if __name__ == '__main__':
     main()

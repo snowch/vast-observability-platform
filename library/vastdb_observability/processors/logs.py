@@ -1,71 +1,63 @@
 from typing import Dict, Any
 from datetime import datetime
-from vastdb_observability.models import ProcessedLog
+from vastdb_observability.models import Event
 from vastdb_observability.processors.base import BaseProcessor
 
 
-class LogsProcessor(BaseProcessor[ProcessedLog]):
-    """Process raw logs into normalized format."""
+class LogsProcessor(BaseProcessor[Event]):
+    """Processes raw log data into the unified Event model."""
 
-    def normalize(self, raw_log: Dict[str, Any]) -> ProcessedLog:
-        """Normalize raw log format to ProcessedLog model."""
+    def normalize(self, raw_log: Dict[str, Any]) -> Event:
+        """Normalizes a raw log dictionary into a structured Event."""
         payload = raw_log.get("payload", {})
+        tags = raw_log.get("tags", {})
 
-        return ProcessedLog(
+        # Ensure log_level is present in tags for consistent filtering
+        if "log_level" not in tags:
+            tags["log_level"] = "info"
+
+        return Event(
             timestamp=self._parse_timestamp(raw_log.get("timestamp")),
+            entity_id=raw_log.get("host", "unknown"),
+            event_type='log',  # This processor specifically creates events of type 'log'
             source=raw_log.get("source", "unknown"),
-            host=raw_log.get("host", "unknown"),
-            database_name=raw_log.get("database", "unknown"),
             environment=raw_log.get("environment", "production"),
-            log_level=raw_log.get("tags", {}).get("log_level", "info"),
-            event_type=payload.get("event_type", "unknown"),
             message=self._build_message(payload),
-            tags=raw_log.get("tags", {}),
-            metadata=payload,
+            tags=tags,
+            attributes=payload,  # Store the original, detailed payload in attributes
         )
 
     def _parse_timestamp(self, timestamp_str: Any) -> datetime:
-        """Parse timestamp string to datetime."""
+        """Safely parses a timestamp string into a datetime object."""
         if isinstance(timestamp_str, datetime):
             return timestamp_str
         if isinstance(timestamp_str, str):
             try:
+                # Handle ISO format with or without 'Z'
                 return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-            except Exception:
+            except (ValueError, TypeError):
                 return datetime.utcnow()
         return datetime.utcnow()
 
     def _build_message(self, payload: Dict[str, Any]) -> str:
-        """Build a human-readable message from payload."""
-        event_type = payload.get("event_type", "unknown")
+        """Creates a human-readable summary message from the event payload."""
+        event_type = payload.get("event_type", "unknown event")
 
         if event_type == "deadlocks":
-            count = payload.get("count", 0)
-            return f"Detected {count} deadlock(s)"
+            return f"Detected {payload.get('count', 0)} deadlock(s)."
         elif event_type == "connection_stats":
-            total = payload.get("total", 0)
-            active = payload.get("active", 0)
-            return f"{active}/{total} active connections"
+            return f"{payload.get('active', 0)}/{payload.get('total', 0)} active connections."
         elif event_type == "query_error":
-            error_code = payload.get("error_code", "")
-            error_msg = payload.get("error_message", "")
-            return f"Query error {error_code}: {error_msg}"
-        else:
-            return f"Event: {event_type}"
+            return f"Query error {payload.get('error_code', 'N/A')}: {payload.get('error_message', 'Unknown')}"
+        
+        return f"Log event of type '{event_type}' received."
 
-    def enrich(self, log: ProcessedLog) -> ProcessedLog:
-        """Enrich log with additional metadata."""
-        if log.log_level in ["error", "critical"]:
-            log.tags["requires_alert"] = "true"
+    def enrich(self, event: Event) -> Event:
+        """Enriches the event with additional computed tags or metadata."""
+        if event.tags.get("log_level") in ["error", "critical", "alert", "emergency"]:
+            event.tags["requires_alert"] = "true"
 
-        if "deadlock" in log.event_type.lower():
-            log.tags["category"] = "concurrency"
-        elif "connection" in log.event_type.lower():
-            log.tags["category"] = "connection"
-        elif "error" in log.event_type.lower():
-            log.tags["category"] = "error"
-
-        severity_map = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
-        log.metadata["severity_score"] = severity_map.get(log.log_level, 1)
-
-        return log
+        if "deadlock" in event.attributes.get("event_type", ""):
+            event.tags["category"] = "database_concurrency"
+        
+        return event
