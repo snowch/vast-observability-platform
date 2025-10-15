@@ -10,7 +10,7 @@ services:
       - observability
     # The .env file is now also referenced from the project root
     env_file:
-      - ./processor/.env
+      - .env
     restart: unless-stopped
 
 networks:
