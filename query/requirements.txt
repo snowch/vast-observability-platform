@@ -1,0 +1,7 @@
+# VAST Database SDK and dependencies
+vastdb
+pyarrow
+ibis-framework
+
+# For loading environment variables from .env file
+python-dotenv
