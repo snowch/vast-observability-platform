@@ -1,3 +1,9 @@
+"""
+Updated configuration to use bucket instead of database.
+
+Replace library/vastdb_observability/config.py with this implementation.
+"""
+
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
 from typing import Optional
@@ -8,13 +14,13 @@ class ProcessorConfig(BaseSettings):
     
     model_config = ConfigDict(env_prefix="", env_file=".env")
 
-    # VAST Database connection
-    vast_host: str = "localhost"
-    vast_port: int = 5432
-    vast_database: str = "observability"
-    vast_username: str = "vast_user"
-    vast_password: str = "vast_password"
-    vast_schema: str = "public"
+    # VAST Database connection (updated to use bucket)
+    # endpoint must include http:// or https:// (e.g., http://vast.example.com:5432)
+    vast_endpoint: str = "http://localhost:5432"
+    vast_access_key: str = "your-access-key"
+    vast_secret_key: str = "your-secret-key"
+    vast_bucket: str = "observability"  # Changed from vast_database
+    vast_schema: str = "observability"
 
     # Processing options
     enable_enrichment: bool = True

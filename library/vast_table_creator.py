@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Create VAST Database tables for observability data.
+Create VAST Database tables for observability data using official VAST API.
 
 Usage:
-    python create_vast_tables.py --host vast.example.com --port 5432 \\
-                                  --database observability --schema observability \\
+    python vast_table_creator.py --endpoint http://vast.example.com:5432 \\
+                                  --bucket observability --schema observability \\
+                                  --access-key YOUR_KEY --secret-key YOUR_SECRET
+
+    # Or with HTTPS:
+    python vast_table_creator.py --endpoint https://vast.example.com \\
+                                  --bucket observability --schema observability \\
                                   --access-key YOUR_KEY --secret-key YOUR_SECRET
 """
 
 import argparse
 import pyarrow as pa
-from vastdb import connect
+import vastdb
 
 
-def create_metrics_table(db_schema, use_row_ids: bool = False):
+def create_metrics_table(schema, use_row_ids: bool = False):
     """Create db_metrics table with optimized sorting keys."""
     
     columns = [
@@ -36,12 +41,12 @@ def create_metrics_table(db_schema, use_row_ids: bool = False):
     if use_row_ids:
         columns.insert(0, ('vastdb_rowid', pa.int64()))
     
-    schema = pa.schema(columns)
+    arrow_schema = pa.schema(columns)
     
     # Create table with sorting keys (up to 4 columns)
-    table = db_schema.create_table(
+    table = schema.create_table(
         'db_metrics',
-        schema,
+        arrow_schema,
         fail_if_exists=False,  # Allow recreation
         use_external_row_ids_allocation=use_row_ids,
         sorting_key=['timestamp', 'host', 'database_name', 'metric_name']
@@ -54,7 +59,7 @@ def create_metrics_table(db_schema, use_row_ids: bool = False):
     return table
 
 
-def create_logs_table(db_schema, use_row_ids: bool = False):
+def create_logs_table(schema, use_row_ids: bool = False):
     """Create db_logs table with optimized sorting keys."""
     
     columns = [
@@ -75,11 +80,11 @@ def create_logs_table(db_schema, use_row_ids: bool = False):
     if use_row_ids:
         columns.insert(0, ('vastdb_rowid', pa.int64()))
     
-    schema = pa.schema(columns)
+    arrow_schema = pa.schema(columns)
     
-    table = db_schema.create_table(
+    table = schema.create_table(
         'db_logs',
-        schema,
+        arrow_schema,
         fail_if_exists=False,
         use_external_row_ids_allocation=use_row_ids,
         sorting_key=['timestamp', 'host', 'database_name', 'log_level']
@@ -92,7 +97,7 @@ def create_logs_table(db_schema, use_row_ids: bool = False):
     return table
 
 
-def create_queries_table(db_schema, use_row_ids: bool = False):
+def create_queries_table(schema, use_row_ids: bool = False):
     """Create db_queries table with optimized sorting keys."""
     
     columns = [
@@ -121,11 +126,11 @@ def create_queries_table(db_schema, use_row_ids: bool = False):
     if use_row_ids:
         columns.insert(0, ('vastdb_rowid', pa.int64()))
     
-    schema = pa.schema(columns)
+    arrow_schema = pa.schema(columns)
     
-    table = db_schema.create_table(
+    table = schema.create_table(
         'db_queries',
-        schema,
+        arrow_schema,
         fail_if_exists=False,
         use_external_row_ids_allocation=use_row_ids,
         sorting_key=['timestamp', 'host', 'database_name', 'mean_time_ms']
@@ -143,9 +148,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='Create VAST Database tables for observability data'
     )
-    parser.add_argument('--host', required=True, help='VAST Database host')
-    parser.add_argument('--port', type=int, default=5432, help='VAST Database port')
-    parser.add_argument('--database', default='observability', help='Database name')
+    parser.add_argument('--endpoint', required=True, 
+                       help='VAST endpoint URL (e.g., http://vast.example.com:5432 or https://vast.example.com)')
+    parser.add_argument('--bucket', required=True, help='Bucket name')
     parser.add_argument('--schema', default='observability', help='Schema name')
     parser.add_argument('--access-key', required=True, help='VAST access key')
     parser.add_argument('--secret-key', required=True, help='VAST secret key')
@@ -161,55 +166,58 @@ def main():
     print("=" * 70)
     print()
     
-    # Connect to VAST
+    # Connect to VAST using official API
     print(f"Connecting to VAST Database...")
-    print(f"  Host: {args.host}:{args.port}")
-    print(f"  Database: {args.database}")
+    print(f"  Endpoint: {args.endpoint}")
+    print(f"  Bucket: {args.bucket}")
     print(f"  Schema: {args.schema}")
     print()
     
-    session = connect(
-        endpoint=f"http://{args.host}:{args.port}",
+    session = vastdb.connect(
+        endpoint=args.endpoint,
         access=args.access_key,
         secret=args.secret_key
     )
     
-    database = session.database(args.database)
-    
-    # Create schema if it doesn't exist
-    try:
-        db_schema = database.schema(args.schema)
-    except:
-        print(f"Creating schema: {args.schema}")
-        db_schema = database.create_schema(args.schema)
-    
-    print(f"✓ Connected to schema: {args.schema}")
-    print()
-    
-    # Drop existing tables if recreate flag is set
-    if args.recreate:
-        print("Dropping existing tables...")
-        for table_name in ['db_metrics', 'db_logs', 'db_queries']:
-            try:
-                db_schema.drop_table(table_name)
-                print(f"  ✓ Dropped: {table_name}")
-            except:
-                print(f"  - Not found: {table_name}")
+    # Use transaction to access bucket and schema
+    with session.transaction() as tx:
+        bucket = tx.bucket(args.bucket)
+        
+        # Create schema if it doesn't exist, or get existing one
+        try:
+            db_schema = bucket.schema(args.schema)
+            print(f"✓ Using existing schema: {args.schema}")
+        except:
+            db_schema = bucket.create_schema(args.schema)
+            print(f"✓ Created new schema: {args.schema}")
+        
+        print()
+        
+        # Drop existing tables if recreate flag is set
+        if args.recreate:
+            print("Dropping existing tables...")
+            for table_name in ['db_metrics', 'db_logs', 'db_queries']:
+                try:
+                    db_schema.drop_table(table_name)
+                    print(f"  ✓ Dropped: {table_name}")
+                except:
+                    print(f"  - Not found: {table_name}")
+            print()
+        
+        # Create tables
+        print("Creating tables...")
+        print()
+        
+        create_metrics_table(db_schema, use_row_ids=args.use_row_ids)
+        print()
+        
+        create_logs_table(db_schema, use_row_ids=args.use_row_ids)
+        print()
+        
+        create_queries_table(db_schema, use_row_ids=args.use_row_ids)
         print()
     
-    # Create tables
-    print("Creating tables...")
-    print()
-    
-    create_metrics_table(db_schema, use_row_ids=args.use_row_ids)
-    print()
-    
-    create_logs_table(db_schema, use_row_ids=args.use_row_ids)
-    print()
-    
-    create_queries_table(db_schema, use_row_ids=args.use_row_ids)
-    print()
-    
+    # Transaction auto-commits when exiting context
     print("=" * 70)
     print("✓ All tables created successfully!")
     print("=" * 70)
@@ -217,22 +225,22 @@ def main():
     print("Query examples:")
     print()
     print("  # Time range query (uses sorting key)")
-    print("  SELECT * FROM observability.db_metrics")
+    print(f"  SELECT * FROM {args.schema}.db_metrics")
     print("  WHERE timestamp BETWEEN '2025-01-01' AND '2025-01-02'")
     print()
     print("  # Host + time query (uses sorting keys)")
-    print("  SELECT * FROM observability.db_logs")
+    print(f"  SELECT * FROM {args.schema}.db_logs")
     print("  WHERE timestamp > '2025-01-01' AND host = 'prod-db-1'")
     print()
     print("  # Slow queries (uses sorting key on mean_time_ms)")
-    print("  SELECT * FROM observability.db_queries")
+    print(f"  SELECT * FROM {args.schema}.db_queries")
     print("  WHERE mean_time_ms > 1000")
     print("  ORDER BY mean_time_ms DESC")
     print()
     
     if args.use_row_ids:
         print("  # Row ID range query")
-        print("  SELECT * FROM observability.db_metrics")
+        print(f"  SELECT * FROM {args.schema}.db_metrics")
         print("  WHERE vastdb_rowid > 1000 AND vastdb_rowid < 2000")
         print()
 

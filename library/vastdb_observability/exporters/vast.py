@@ -1,5 +1,5 @@
 """
-Updated VAST Exporter aligned with Arrow schema and sorting keys.
+VAST Exporter - Fixed to use official VAST API with transactions and buckets.
 
 Replace library/vastdb_observability/exporters/vast.py with this implementation.
 """
@@ -15,52 +15,58 @@ logger = structlog.get_logger()
 
 
 class VASTExporter:
-    """Export processed data to VAST Database using PyArrow."""
+    """Export processed data to VAST Database using PyArrow and official VAST API."""
 
     def __init__(
         self,
-        endpoint: str,  # e.g., "http://vast.example.com:5432"
+        endpoint: str,  # Full URL with protocol: http://vast.example.com:5432 or https://vast.example.com
         access_key: str,
         secret_key: str,
-        database: str,
-        schema: str = "observability",
+        bucket_name: str,  # Changed from "database"
+        schema_name: str = "observability",
     ):
         """
         Initialize VAST exporter.
         
         Args:
-            endpoint: VAST endpoint URL (http://host:port)
+            endpoint: VAST endpoint URL with protocol (http://host:port or https://host:port)
+                     Examples: 
+                     - http://vast.example.com:5432
+                     - https://vast.example.com
             access_key: VAST access key
             secret_key: VAST secret key
-            database: Database name
-            schema: Schema name (default: observability)
+            bucket_name: Bucket name (was "database" in old API)
+            schema_name: Schema name (default: observability)
         """
         self.endpoint = endpoint
         self.access_key = access_key
         self.secret_key = secret_key
-        self.database_name = database
-        self.schema_name = schema
+        self.bucket_name = bucket_name
+        self.schema_name = schema_name
         self.session = None
-        self.db_schema = None
         self.logger = logger.bind(exporter="vast")
+        
+        # Validate endpoint format
+        if not endpoint.startswith(('http://', 'https://')):
+            raise ValueError(
+                f"Endpoint must start with http:// or https://, got: {endpoint}\n"
+                f"Examples: http://vast.example.com:5432 or https://vast.example.com"
+            )
 
     async def connect(self):
         """Establish connection to VAST Database."""
-        from vastdb import connect
+        import vastdb
         
-        self.session = connect(
+        self.session = vastdb.connect(
             endpoint=self.endpoint,
             access=self.access_key,
             secret=self.secret_key
         )
         
-        database = self.session.database(self.database_name)
-        self.db_schema = database.schema(self.schema_name)
-        
         self.logger.info(
             "vast_connected",
             endpoint=self.endpoint,
-            database=self.database_name,
+            bucket=self.bucket_name,
             schema=self.schema_name
         )
 
@@ -100,12 +106,15 @@ class VASTExporter:
             'id': pa.array([m.id for m in metrics]),
         }
 
-        # Create RecordBatch in the correct column order
+        # Create RecordBatch
         batch = pa.RecordBatch.from_pydict(arrays)
         
-        # Insert into VAST
-        table = self.db_schema.table('db_metrics')
-        table.insert(batch)
+        # Insert into VAST using transaction pattern
+        with self.session.transaction() as tx:
+            bucket = tx.bucket(self.bucket_name)
+            schema = bucket.schema(self.schema_name)
+            table = schema.table('db_metrics')
+            table.insert(batch)
 
         self.logger.info("metrics_exported", count=len(metrics))
 
@@ -134,8 +143,12 @@ class VASTExporter:
 
         batch = pa.RecordBatch.from_pydict(arrays)
         
-        table = self.db_schema.table('db_logs')
-        table.insert(batch)
+        # Insert using transaction
+        with self.session.transaction() as tx:
+            bucket = tx.bucket(self.bucket_name)
+            schema = bucket.schema(self.schema_name)
+            table = schema.table('db_logs')
+            table.insert(batch)
 
         self.logger.info("logs_exported", count=len(logs))
 
@@ -172,8 +185,12 @@ class VASTExporter:
 
         batch = pa.RecordBatch.from_pydict(arrays)
         
-        table = self.db_schema.table('db_queries')
-        table.insert(batch)
+        # Insert using transaction
+        with self.session.transaction() as tx:
+            bucket = tx.bucket(self.bucket_name)
+            schema = bucket.schema(self.schema_name)
+            table = schema.table('db_queries')
+            table.insert(batch)
 
         self.logger.info("queries_exported", count=len(queries))
 
@@ -201,8 +218,8 @@ exporter = VASTExporter(
     endpoint="http://vast.example.com:5432",
     access_key="your-access-key",
     secret_key="your-secret-key",
-    database="observability",
-    schema="observability"
+    bucket_name="observability",  # Note: "bucket" not "database"
+    schema_name="observability"
 )
 
 await exporter.connect()
