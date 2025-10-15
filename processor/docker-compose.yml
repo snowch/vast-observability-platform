@@ -5,13 +5,11 @@ services:
       dockerfile: ./processor/Dockerfile
     container_name: processor
     networks:
-      - observability
+      - ingest_observability
     env_file:
       - .env
     restart: unless-stopped
 
 networks:
-  observability:
-    external:
-      # Point to the actual network name created by the ingest project
-      name: ingest_observability
+  ingest_observability:
+    external: true
