@@ -57,7 +57,6 @@ class KafkaProcessorService:
                 msg = self.consumer.poll(timeout=1.0)
 
                 if msg is None:
-                    # No message received within timeout
                     if self.batch_processor.should_flush():
                         asyncio.run(self.flush_batch())
                     continue
@@ -68,30 +67,29 @@ class KafkaProcessorService:
                     else:
                         logger.error("kafka_consumer_error", error=msg.error())
                         break
-
-                # Process the message
+                
                 try:
                     topic = msg.topic()
                     value = msg.value()
                     
                     if topic == 'otel-metrics':
-                        # --- ROBUSTNESS FIX ---
-                        # Try to decompress, but fall back if it's not gzipped.
                         try:
                             decompressed_data = gzip.decompress(value)
                         except gzip.BadGzipFile:
-                            decompressed_data = value # Assume it's not compressed
-                        
-                        # Parse the Protobuf message
+                            decompressed_data = value
+
                         metrics_request = ExportMetricsServiceRequest()
                         metrics_request.ParseFromString(decompressed_data)
                         
-                        # Convert to Dict for the processor
                         for resource_metric in metrics_request.resource_metrics:
-                            message_data = MessageToDict(resource_metric)
+                            # --- FIX IS HERE ---
+                            # Add preserving_proto_field_name=True to keep snake_case
+                            message_data = MessageToDict(
+                                resource_metric,
+                                preserving_proto_field_name=True
+                            )
                             self.batch_processor.add(message_data)
                     else:
-                        # Handle JSON messages for other topics
                         message_data = json.loads(value.decode('utf-8'))
                         self.batch_processor.add(message_data)
 
@@ -99,13 +97,11 @@ class KafkaProcessorService:
                 except (json.JSONDecodeError, Exception) as e:
                     logger.error("message_processing_failed", error=str(e), topic=msg.topic())
 
-                # Check if batch should be flushed
                 if self.batch_processor.should_flush():
                     asyncio.run(self.flush_batch())
 
         finally:
             self.consumer.close()
-
 
     async def flush_batch(self):
         """Flushes the current batch to VAST DB."""
