@@ -4,7 +4,7 @@ class Settings(BaseSettings):
     # Kafka Configuration
     KAFKA_BOOTSTRAP_SERVERS: str = "kafka-ingestion:9092"
     KAFKA_GROUP_ID: str = "vastdb_processor"
-    KAFKA_TOPICS: str = "raw-logs,raw-queries"
+    KAFKA_TOPICS: str = "otel-metrics,raw-logs,raw-queries"
 
     # VAST Database Configuration
     VAST_ENDPOINT: str = "http://localhost:5432"
