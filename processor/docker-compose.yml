@@ -1,15 +1,16 @@
 services:
   processor:
     build:
-      # The build context is now the root of the project
-      context: .
-      # We point to the Dockerfile inside the processor directory
-      dockerfile: Dockerfile
+      # Set the build context to the parent directory (the project root)
+      context: ..
+      # Specify the path to the Dockerfile relative to the new context
+      dockerfile: ./processor/Dockerfile
     container_name: processor
     networks:
       - observability
+    # The .env file is now also referenced from the project root
     env_file:
-      - .env
+      - ./processor/.env
     restart: unless-stopped
 
 networks:
