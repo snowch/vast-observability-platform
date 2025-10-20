@@ -44,10 +44,22 @@ make debug
                                                └─> [raw-queries]
 ```
 
+```
+┌──────────────┐
+│ Centos Host  │
+└──────┬───────┘
+       │
+       └─── Host Metrics Receiver ───> [OTel Collector]
+            (CPU, memory, disk, net)          │
+                                              ├─> [otel-metrics]
+```
+
 **Collection Methods:**
-- **OTel Collector**: Metrics via PostgreSQL receiver (30s intervals)
-- **Python Collector**: Logs and query analytics via pg_stat_statements (30s intervals)
-- **Load Simulator**: Generates test database traffic
+- **OTel Collector**: Collects metrics from two sources:
+  - **PostgreSQL**: Database metrics via the PostgreSQL receiver (30s intervals).
+  - **Host (Centos)**: System-level metrics (CPU, memory, disk, network) via the Host Metrics receiver.
+- **Python Collector**: Logs and query analytics via `pg_stat_statements` (30s intervals).
+- **Load Simulator**: Generates test database traffic.
 
 **Data Flow:**
 1. Collectors connect to databases (read-only, agentless)
@@ -65,17 +77,19 @@ All topics are on `kafka-ingestion` (localhost:9092)
 **Source**: OpenTelemetry Collector  
 **Format**: OTLP (Protocol Buffers)  
 **Frequency**: Every 30 seconds  
-**Content**: Database and host metrics
+**Content**: Database and host system metrics.
 
 **Metrics Included:**
-- `postgresql.blocks_read` - Disk block reads
-- `postgresql.commits` - Transaction commits
-- `postgresql.db_size` - Database size in bytes
-- `postgresql.backends` - Active connections
-- `postgresql.deadlocks` - Deadlock count
-- `postgresql.rows` - Row operations
-- `postgresql.operations` - Query operations
-- Host metrics (CPU, memory, disk, network)
+- **PostgreSQL Metrics**:
+  - `postgresql.blocks_read` - Disk block reads
+  - `postgresql.commits` - Transaction commits
+  - `postgresql.db_size` - Database size in bytes
+  - `postgresql.backends` - Active connections
+  - `postgresql.deadlocks` - Deadlock count
+  - `postgresql.rows` - Row operations
+  - `postgresql.operations` - Query operations
+- **Host Metrics (Centos)**:
+  - System-level metrics including CPU, memory, disk, and network usage.
 
 **Key Schema:**
 ```
