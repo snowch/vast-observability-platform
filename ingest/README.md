@@ -48,11 +48,38 @@ make debug
 ┌──────────────┐
 │ Centos Host  │
 └──────┬───────┘
+       ├─── Host Metrics Receiver ───> [OTel Collector]
+       │    (CPU, memory, disk, net)          │
+       │                                      ├─> [otel-metrics]
        │
-       └─── Host Metrics Receiver ───> [OTel Collector]
-            (CPU, memory, disk, net)          │
-                                              ├─> [otel-metrics]
+       └─── Syslog Receiver ──────────> [OTel Collector]
+            (syslog messages)                 │
+                                              ├─> [raw-host-logs]
 ```
+
+The project is not entirely consistent in its use of the OTEL protocol. This is done intentionally to demonstrate two alternative approaches for collecting and transmitting observability data.
+
+Here’s a breakdown of the two methods used in the platform:
+
+1. Standard OpenTelemetry (OTLP) Approach
+
+This method uses the standard OpenTelemetry Collector for gathering metrics and system logs. It relies on established OTLP formats, which ensures interoperability with the wider OpenTelemetry ecosystem.
+
+    Metrics (otel-metrics topic): The OTEL Collector gathers metrics from PostgreSQL and the host system. It then exports them to Kafka using the standard binary OTLP protobuf format. This is a highly efficient, compressed format ideal for high-volume metric data.
+
+    Host Logs (raw-host-logs topic): System logs are captured via the OTEL Collector's syslog receiver and exported to Kafka in OTLP JSON format. While still following the OTLP structure, this format is human-readable, which can be useful for debugging.
+
+2. Custom JSON Approach
+
+This method uses a custom-built Python application to collect more specialized data, such as detailed query analytics. This approach offers greater flexibility in defining the exact structure of the data being sent.
+
+    Database Logs (raw-logs topic): The Python collector gathers specific log events like deadlocks and connection stats from PostgreSQL.
+
+    Query Analytics (raw-queries topic): Detailed query performance data is collected from pg_stat_statements.
+
+Both of these are sent to Kafka as custom JSON objects, not in the OTLP format. This allows for a schema tailored specifically to the needs of the downstream processing and analysis layers.
+
+By implementing both methods, the project effectively showcases the trade-off between the standardization and interoperability of the OTLP protocol versus the flexibility and simplicity of a custom JSON implementation.
 
 **Collection Methods:**
 - **OTel Collector**: Collects metrics from two sources:
