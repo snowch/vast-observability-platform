@@ -9,8 +9,11 @@ RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && \
     yum install -y postgresql16-server rsyslog && \
     yum clean all
 
+# Set the PATH to include PostgreSQL binaries
+ENV PATH=/usr/pgsql-16/bin:$PATH
+
 # Initialize the database and set up the data directory
-RUN /usr/pgsql-16/bin/postgresql-16-setup initdb
+RUN postgresql-16-setup initdb
 COPY init-scripts/ /docker-entrypoint-initdb.d/
 
 # --- NEW: Copy rsyslog config and entrypoint script ---
