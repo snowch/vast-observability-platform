@@ -18,16 +18,17 @@ class BatchProcessor:
         self.logs_processor = LogsProcessor(config)
         self.queries_processor = QueriesProcessor(config)
 
-    def add(self, message: Dict[str, Any]) -> None:
+    def add(self, message: Dict[str, Any], topic: str = "") -> None:
         """Adds a raw message to the batch after processing it."""
         data_type = message.get("data_type", "")
 
         try:
-            # --- FIX IS HERE ---
-            # The key from MessageToDict is 'scope_metrics' (snake_case).
             if "scope_metrics" in message:
                 processed_metrics = self.metrics_processor.process(message)
                 self.batch.metrics.extend(processed_metrics)
+            elif topic == "raw-host-logs":
+                processed_event = self.logs_processor.process(message)
+                self.batch.events.append(processed_event)
             elif data_type == "log":
                 processed_event = self.logs_processor.process(message)
                 self.batch.events.append(processed_event)
@@ -35,8 +36,6 @@ class BatchProcessor:
                 processed_event = self.queries_processor.process(message)
                 self.batch.events.append(processed_event)
         except Exception as e:
-            # --- LOGGING ADDED ---
-            # This ensures we don't silently drop messages on failure.
             logger.error("batch_add_failed", message_type=data_type, error=str(e))
 
 

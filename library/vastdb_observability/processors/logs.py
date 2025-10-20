@@ -9,6 +9,13 @@ class LogsProcessor(BaseProcessor[Event]):
 
     def normalize(self, raw_log: Dict[str, Any]) -> Event:
         """Normalizes a raw log dictionary into a structured Event."""
+        if "resource" in raw_log and "scope_logs" in raw_log:
+            return self._normalize_otlp_log(raw_log)
+        else:
+            return self._normalize_custom_log(raw_log)
+
+    def _normalize_custom_log(self, raw_log: Dict[str, Any]) -> Event:
+        """Normalizes a custom raw log dictionary into a structured Event."""
         payload = raw_log.get("payload", {})
         tags = raw_log.get("tags", {})
 
@@ -26,6 +33,34 @@ class LogsProcessor(BaseProcessor[Event]):
             tags=tags,
             attributes=payload,  # Store the original, detailed payload in attributes
         )
+
+    def _normalize_otlp_log(self, otlp_log: Dict[str, Any]) -> Event:
+        """Normalizes an OTLP log record into a structured Event."""
+        resource_attrs = {attr["key"]: attr["value"]["stringValue"] for attr in otlp_log.get("resource", {}).get("attributes", [])}
+        
+        # Get the first log record
+        log_record = otlp_log["scope_logs"][0]["log_records"][0]
+        
+        body = log_record.get("body", {}).get("stringValue", "")
+        attributes = {attr["key"]: attr["value"]["stringValue"] for attr in log_record.get("attributes", [])}
+        
+        return Event(
+            timestamp=self._parse_otlp_timestamp(log_record.get("time_unix_nano")),
+            entity_id=resource_attrs.get("host.name", "unknown"),
+            event_type='syslog',
+            source='syslog',
+            environment=resource_attrs.get("deployment.environment", "production"),
+            message=body,
+            tags=attributes,
+            attributes=attributes
+        )
+
+    def _parse_otlp_timestamp(self, time_unix_nano: Any) -> datetime:
+        """Safely convert OTLP nanosecond timestamp (str or int) to datetime."""
+        try:
+            return datetime.fromtimestamp(int(time_unix_nano) / 1_000_000_000)
+        except (ValueError, TypeError):
+            return datetime.utcnow()
 
     def _parse_timestamp(self, timestamp_str: Any) -> datetime:
         """Safely parses a timestamp string into a datetime object."""

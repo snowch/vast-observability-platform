@@ -91,7 +91,7 @@ class KafkaProcessorService:
                             self.batch_processor.add(message_data)
                     else:
                         message_data = json.loads(value.decode('utf-8'))
-                        self.batch_processor.add(message_data)
+                        self.batch_processor.add(message_data, topic=topic)
 
                     self.consumer.commit(asynchronous=True)
                 except (json.JSONDecodeError, Exception) as e:

@@ -2,6 +2,7 @@ import os
 import vastdb
 import pyarrow as pa
 from dotenv import load_dotenv
+from ibis import _
 
 def query_and_print(table, table_name: str, limit=5):
     """Executes a select query on a table and prints the results."""
@@ -26,6 +27,36 @@ def query_and_print(table, table_name: str, limit=5):
     
     print("-" * 50)
     print()
+
+def query_syslog_events(schema, limit=5):
+    """Queries for syslog events in the 'events' table."""
+    table_name = "events"
+    print("-" * 50)
+    print(f"Querying for syslog events from '{table_name}' table...")
+    
+    try:
+        events_table = schema.table(table_name)
+        
+        # Use a predicate to filter for syslog events
+        reader = events_table.select(
+            predicate=(_.event_type == 'syslog'),
+            limit_rows=limit
+        )
+        result_table = reader.read_all()
+        
+        if result_table.num_rows > 0:
+            print(f"✓ Found {result_table.num_rows} syslog events.")
+            df = result_table.to_pandas()
+            print(df.to_string())
+        else:
+            print("  - No syslog events found.")
+            
+    except Exception as e:
+        print(f"❌ Error querying syslog events: {e}")
+    
+    print("-" * 50)
+    print()
+
 
 def main():
     """Connects to VAST DB and queries the main observability tables."""
@@ -69,6 +100,9 @@ def main():
                     query_and_print(table, table_name)
                 except Exception:
                     print(f"  - Table '{table_name}' not found in schema '{SCHEMA_NAME}'.")
+
+            # --- Query Syslog Events ---
+            query_syslog_events(schema)
 
     except Exception as e:
         print(f"❌ An error occurred during the database operation: {e}")
