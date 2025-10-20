@@ -6,7 +6,7 @@ This project is the processing layer of the VAST Observability Platform. It cons
 
 - **Input**: Consumes from `raw-logs` and `raw-queries` Kafka topics.
 - **Processing**: Uses the `BatchProcessor` from the `vastdb-observability` library to normalize and enrich data in batches.
-- **Output**: Writes processed data to `events` and `metrics` tables in VAST Database via the `VASTExporter`.
+- **Output**: Writes processed data to `events`, `metrics`, and `entities` tables in VAST Database via the `VASTExporter`.
 
 ## Getting Started
 
@@ -26,40 +26,16 @@ This project is the processing layer of the VAST Observability Platform. It cons
     -   Edit `.env` with your VAST Database credentials and Kafka connection details.
 
 2.  **Build and Run with Docker Compose**:
-    -   A `docker-compose.yml` file should be created in the root of the `vast-observability-platform` directory to run this service alongside the `ingest` services.
+    -   The provided `docker-compose.yml` in this directory is for standalone development. For integrated deployment, you would add the `processor` service to the main `docker-compose.yml` in the `ingest` directory.
 
-    ```yaml
-    # In root docker-compose.yml
-    services:
-      # ... (ingest services) ...
-
-      processor:
-        build:
-          context: ./processor
-          dockerfile: Dockerfile
-        container_name: processor
-        depends_on:
-          - kafka-ingestion
-        environment:
-          - KAFKA_BOOTSTRAP_SERVERS=kafka-ingestion:9092
-          - VAST_ENDPOINT=${VAST_ENDPOINT}
-          - VAST_ACCESS_KEY=${VAST_ACCESS_KEY}
-          - VAST_SECRET_KEY=${VAST_SECRET_KEY}
-          - VAST_BUCKET=${VAST_BUCKET}
-        volumes:
-          - ./library:/app/library # Mount the local library for development
-        restart: unless-stopped
+3.  **Build and Run with Docker Compose**:
+    ```bash
+    docker-compose up -d --build
     ```
-
-3.  **Start the Service**:
-    -   From the root directory:
-        ```bash
-        docker-compose up -d --build processor
-        ```
 
 4.  **View Logs**:
     ```bash
-    docker-compose logs -f processor
+    docker-compose logs -f
     ```
 
 ## How It Works
@@ -82,4 +58,4 @@ The collectors in this project produce raw data to Kafka topics. A separate `pro
 | `raw-queries` | Python Collector | `QueriesProcessor` | **`events`** | Each query analytics message becomes a row with `event_type` = `'database_query'`. |
 | `otel-metrics` | OTel Collector | `MetricsProcessor` | **`metrics`** | Each metric data point becomes a row linked to a host via `entity_id`. |
 
-**Note**: The **`entities`** table is not populated by this pipeline. It requires a separate discovery or inventory process to catalog the systems being monitored.
+The `BatchProcessor` also automatically creates and updates an **`entities`** table to catalog the systems being monitored.

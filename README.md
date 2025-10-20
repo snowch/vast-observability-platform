@@ -9,9 +9,13 @@ vast-observability-platform/
 │   ├── docker-compose.yml   # PostgreSQL, Kafka, Collectors
 │   ├── Makefile             # Service management
 │   └── ...
-└── library/                 # Data processing library
-    ├── vastdb_observability/ # Python package
-    ├── tests/               # Tests with real data
+├── library/                 # Data processing library
+│   ├── vastdb_observability/ # Python package for processing telemetry
+│   └── ...
+├── processor/               # Kafka consumer that processes and stores data
+│   ├── docker-compose.yml   # Runs the processor service
+│   └── ...
+└── query/                   # Scripts for querying data from VAST DB
     └── ...
 ```
 
@@ -41,13 +45,16 @@ python -m pytest tests/test_processors.py -v
 
 ## Projects
 
-- **[ingest/](./ingest/)** - Collection layer that monitors databases and publishes to Kafka
-- **[library/](./library/)** - Python library for processing and storing observability data
+- **[ingest/](./ingest/)** - Collection layer that monitors databases and publishes to Kafka.
+- **[library/](./library/)** - Python library for processing and storing observability data.
+- **[processor/](./processor/)** - Kafka consumer that uses the library to process and store data.
+- **[query/](./query/)** - Example scripts for querying the processed data from VAST DB.
 
 ## Documentation
 
-- [Ingestion Layer README](./ingest/README.md)
-- [Library README](./library/README.md)
+- [Ingestion Layer](./ingest/README.md)
+- [Processing Library](./library/README.md)
+- [Kafka Processor](./processor/README.md)
 - [Kafka Topics Documentation](./ingest/TOPICS.md)
 - [Project Scope](./ingest/PROJECT_SCOPE.md)
 

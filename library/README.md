@@ -34,23 +34,45 @@ pip install -e ".[dev]"
 
 ## Usage
 
-```python
-from vastdb_observability import QueriesProcessor, VASTExporter
+The library now uses an entity-centric model where events and metrics are linked to a monitored `Entity`.
 
-processor = QueriesProcessor()
+```python
+from vastdb_observability import QueriesProcessor, VASTExporter, Entity
+from vastdb_observability.config import ProcessorConfig
+from datetime import datetime
+
+# Load configuration from .env file
+config = ProcessorConfig()
+
+# Initialize the exporter
 exporter = VASTExporter(
-    host="vast.example.com",
-    port=5432,
-    database="observability",
-    username="vast_user",
-    password="secure_password"
+    endpoint=config.vast_endpoint,
+    access_key=config.vast_access_key,
+    secret_key=config.vast_secret_key,
+    bucket_name=config.vast_bucket
 )
 
-await exporter.connect()
+# Initialize a processor
+queries_processor = QueriesProcessor()
 
-raw_query = {...}  # From Kafka
-processed = processor.process(raw_query)
-await exporter.export_queries([processed])
+# Process a raw message
+raw_query = {"host": "postgres", ...}  # Raw data from Kafka
+processed_event = queries_processor.process(raw_query)
+
+# Create an entity for the monitored host
+entity = Entity(
+    entity_id=processed_event.entity_id,
+    entity_type="database_host",
+    first_seen=datetime.utcnow(),
+    last_seen=datetime.utcnow(),
+    attributes={"source_system": "postgresql"}
+)
+
+# Export the processed data
+await exporter.connect()
+await exporter.export_events([processed_event])
+await exporter.export_entities([entity])
+await exporter.disconnect()
 ```
 
 ## Documentation
