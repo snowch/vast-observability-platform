@@ -1,26 +1,28 @@
 services:
   # PostgreSQL Database - Data Source
   postgres:
-    build:
-      context: ./postgres
-    container_name: postgres-db
-    command: postgres -c shared_preload_libraries=pg_stat_statements
-    environment:
-      POSTGRES_DB: app_db
-      POSTGRES_USER: app_user
-      POSTGRES_PASSWORD: app_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data # Keep this for persistent data!
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app_user -d app_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - observability
-
+      build:
+        context: ./postgres
+      container_name: postgres-db
+      # NO 'command' line here
+      environment:
+        POSTGRES_DB: app_db
+        POSTGRES_USER: app_user
+        POSTGRES_PASSWORD: app_password
+      ports:
+        - "5432:5432"
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      healthcheck:
+        #test: ["CMD-SHELL", "pg_isready -U app_user -d app_db"]
+        test: ["CMD-SHELL", "psql -U app_user -d app_db -c 'SELECT 1 FROM users LIMIT 1;'"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+        start_period: 60s
+      networks:
+        - observability
+  
   # Zookeeper - Required for Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0

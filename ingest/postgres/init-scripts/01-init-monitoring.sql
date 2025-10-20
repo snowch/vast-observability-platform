@@ -1,10 +1,12 @@
--- Initialize PostgreSQL for monitoring
+-- ingest/postgres/init-scripts/01-init-monitoring.sql
 
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 CREATE USER monitor_user WITH PASSWORD 'monitor_password';
 
 GRANT CONNECT ON DATABASE app_db TO monitor_user;
+-- The GRANT for app_user is now moved to the end
+
 GRANT USAGE ON SCHEMA public TO monitor_user;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO monitor_user;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO monitor_user;
@@ -54,5 +56,5 @@ CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 
-ALTER SYSTEM SET pg_stat_statements.track = 'all';
-ALTER SYSTEM SET pg_stat_statements.max = 10000;
+-- --- FIX: Grant permissions to app_user AFTER tables are created ---
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_user;

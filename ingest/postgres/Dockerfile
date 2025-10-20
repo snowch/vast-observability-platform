@@ -1,22 +1,25 @@
-# Use CentOS 7 as the base image
-FROM centos:7
+# Use AlmaLinux 9 as a modern, stable base image
+FROM almalinux:9
 
-# Install PostgreSQL 16 and rsyslog
-RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && \
-    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* && \
-    yum update -y && \
-    yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm && \
-    yum install -y postgresql16-server rsyslog && \
-    yum clean all
+# Install the official PostgreSQL 16 repository
+RUN dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
 
-# Set the PATH to include PostgreSQL binaries
-ENV PATH=/usr/pgsql-16/bin:$PATH
+# Disable the default PostgreSQL module to prevent conflicts
+RUN dnf -qy module disable postgresql
 
-# Initialize the database and set up the data directory
-RUN postgresql-16-setup initdb
+# Install the necessary PostgreSQL packages and rsyslog
+RUN dnf install -y postgresql16-server postgresql16-contrib rsyslog && \
+    dnf clean all
+
+# Create the data directory and set permissions
+RUN mkdir -p /var/lib/pgsql/16/data && \
+    chown -R postgres:postgres /var/lib/pgsql/16/data && \
+    chmod 700 /var/lib/pgsql/16/data
+
+# --- FIX: REMOVED configuration lines from here ---
+
+# Copy all necessary scripts and configurations
 COPY init-scripts/ /docker-entrypoint-initdb.d/
-
-# --- NEW: Copy rsyslog config and entrypoint script ---
 COPY rsyslog.conf /etc/rsyslog.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
@@ -24,8 +27,9 @@ RUN chmod +x /entrypoint.sh
 # Expose the PostgreSQL port
 EXPOSE 5432
 
-# Set the user to postgres
-USER postgres
+# Set environment variables to be used by the entrypoint script
+ENV PATH=/usr/pgsql-16/bin:$PATH
+ENV PGDATA=/var/lib/pgsql/16/data
 
-# --- UPDATED: Use the entrypoint script to start services ---
+# Set the entrypoint to our custom script
 CMD ["/entrypoint.sh"]
