@@ -33,6 +33,15 @@ receivers:
       disk:
       network:
 
+  syslog:
+    tcp:
+      listen_address: "0.0.0.0:5140"
+    protocol: rfc3164
+    operators:
+      - type: regex_parser
+        regex: '^(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<hostname>\S+)\s+(?P<app_name>\S+?)(?:\[(?P<proc_id>\d+)\])?:\s+(?P<message>.*)$'
+        output: body
+
 processors:
   batch:
     timeout: 10s
@@ -97,6 +106,11 @@ service:
       receivers: [postgresql, hostmetrics]
       processors: [memory_limiter, resourcedetection, resource, batch]
       exporters: [kafka, logging]
+
+    logs:
+      receivers: [syslog]
+      processors: [memory_limiter, resource, batch]
+      exporters: [kafka]
 
   telemetry:
     logs:

@@ -208,6 +208,16 @@ kafka-consume-queries:
 		--from-beginning \
 		--max-messages 10
 
+kafka-consume-host-logs:
+	@echo "Consuming messages from raw-host-logs topic (Ctrl+C to stop)..."
+	@echo "Note: Data is in JSON format"
+	@echo ""
+	$(DOCKER_COMPOSE) exec kafka-ingestion kafka-console-consumer \
+		--bootstrap-server localhost:9092 \
+		--topic raw-host-logs \
+		--from-beginning \
+		--max-messages 10
+
 check-pg-stats:
 	@echo "Checking pg_stat_statements..."
 	$(DOCKER_COMPOSE) exec -T postgres psql -U app_user -d app_db -c "\

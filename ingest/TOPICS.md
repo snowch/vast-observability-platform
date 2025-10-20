@@ -13,6 +13,7 @@ This document describes all Kafka topics produced by the Database Observability 
 | `otel-metrics` | OTel Collector | OTLP Proto | 30s | Database & host metrics |
 | `raw-logs` | Python Collector | JSON | 30s | Database log events |
 | `raw-queries` | Python Collector | JSON | 30s | Query performance analytics |
+| `raw-host-logs` | OTel Collector | JSON | Real-time | Host system logs |
 
 ---
 
@@ -437,6 +438,43 @@ async for message in consumer:
    if current_mean_time > historical_mean_time * 1.5:
        alert("Query performance degraded by 50%")
    ```
+
+---
+
+## 4. raw-host-logs
+
+### Overview
+
+  - **Producer**: OpenTelemetry Collector (from syslog)
+  - **Format**: JSON
+  - **Encoding**: UTF-8
+  - **Frequency**: Real-time
+  - **Partition Key**: `<host>`
+  - **Retention**: 7 days (configurable)
+
+### Purpose
+
+Collects system-level logs from host machines (e.g., CentOS) for deep system analysis and troubleshooting.
+
+### Example Message
+
+```json
+{
+  "timestamp": "2025-10-20T13:10:00.000Z",
+  "source": "syslog",
+  "data_type": "log",
+  "host": "centos-host",
+  "environment": "development",
+  "tags": {
+    "log_level": "info"
+  },
+  "payload": {
+    "app_name": "sshd",
+    "proc_id": "12345",
+    "message": "Accepted publickey for user from 192.168.1.100 port 22 ssh2: RSA SHA256:..."
+  }
+}
+```
 
 ---
 

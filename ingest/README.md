@@ -183,6 +183,21 @@ make kafka-consume-queries
 
 ---
 
+### 4. `raw-host-logs`
+
+**Source**: OpenTelemetry Collector (from syslog)  
+**Format**: JSON  
+**Frequency**: Real-time  
+**Content**: System logs from the CentOS host.
+
+**Consumption:**
+
+```bash
+make kafka-consume-host-logs
+```
+
+---
+
 ## Services
 
 | Service | Port | Purpose | Health Check |
@@ -226,6 +241,7 @@ make kafka-topics            # List all topics
 make kafka-consume-metrics   # View metrics data
 make kafka-consume-logs      # View log data
 make kafka-consume-queries   # View query analytics data
+make kafka-consume-host-logs # View host log data
 make kafka-ui                # Open Kafka UI in browser
 ```
 
