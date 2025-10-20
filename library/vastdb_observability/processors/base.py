@@ -16,7 +16,7 @@ class BaseProcessor(ABC, Generic[T]):
         self.logger = logger.bind(processor=self.__class__.__name__)
 
     @abstractmethod
-    def normalize(self, raw_data: Dict[str, Any]) -> T:
+    def normalize(self, raw_data: Dict[str, Any], topic: str = "") -> T:
         """Normalize raw data into common schema."""
         pass
 
@@ -36,9 +36,9 @@ class BaseProcessor(ABC, Generic[T]):
             self.logger.warning("validation_failed", error=str(e))
             return False
 
-    def process(self, raw_data: Dict[str, Any], **kwargs) -> T:
+    def process(self, raw_data: Dict[str, Any], topic: str = "", **kwargs) -> T:
         """Full processing pipeline: normalize -> enrich -> validate."""
-        normalized = self.normalize(raw_data)
+        normalized = self.normalize(raw_data, topic=topic)
 
         if self.config.enable_enrichment and kwargs.get("enrich", True):
             normalized = self.enrich(normalized)

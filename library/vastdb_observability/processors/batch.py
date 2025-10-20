@@ -20,23 +20,28 @@ class BatchProcessor:
 
     def add(self, message: Dict[str, Any], topic: str = "") -> None:
         """Adds a raw message to the batch after processing it."""
-        data_type = message.get("data_type", "")
-
         try:
-            if "scope_metrics" in message:
-                processed_metrics = self.metrics_processor.process(message)
+            if topic == 'otel-metrics':
+                processed_metrics = self.metrics_processor.process(message, topic=topic)
                 self.batch.metrics.extend(processed_metrics)
-            elif topic == "raw-host-logs":
+            elif topic == 'raw-logs' or topic == 'raw-host-logs':
+                processed_event = self.logs_processor.process(message, topic=topic)
+                self.batch.events.append(processed_event)
+            elif topic == 'raw-queries':
+                processed_event = self.queries_processor.process(message, topic=topic)
+                self.batch.events.append(processed_event)
+            # Handle cases where topic is not provided (e.g., from older code)
+            elif "scope_metrics" in message:
+                 processed_metrics = self.metrics_processor.process(message)
+                 self.batch.metrics.extend(processed_metrics)
+            elif message.get("data_type") == "log":
                 processed_event = self.logs_processor.process(message)
                 self.batch.events.append(processed_event)
-            elif data_type == "log":
-                processed_event = self.logs_processor.process(message)
-                self.batch.events.append(processed_event)
-            elif data_type == "query":
+            elif message.get("data_type") == "query":
                 processed_event = self.queries_processor.process(message)
                 self.batch.events.append(processed_event)
         except Exception as e:
-            logger.error("batch_add_failed", message_type=data_type, error=str(e))
+            logger.error("batch_add_failed", topic=topic, error=str(e))
 
 
     def should_flush(self) -> bool:
