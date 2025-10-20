@@ -6,13 +6,13 @@ Complete database observability platform for collecting, processing, and analyzi
 ```
 vast-observability-platform/
 ├── ingest/                  # Data collection layer
-│   ├── docker-compose.yml   # PostgreSQL, Kafka, Collectors
+│   ├── docker-compose.yml   # PostgreSQL, Centos, Collectors
 │   ├── Makefile             # Service management
 │   └── ...
 ├── library/                 # Data processing library
 │   ├── vastdb_observability/ # Python package for processing telemetry
 │   └── ...
-├── processor/               # Kafka consumer that processes and stores data
+├── processor/               # Kafka consumer that processes and stores data in VAST DB
 │   ├── docker-compose.yml   # Runs the processor service
 │   └── ...
 └── query/                   # Scripts for querying data from VAST DB
