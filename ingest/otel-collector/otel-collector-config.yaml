@@ -37,10 +37,7 @@ receivers:
     tcp:
       listen_address: "0.0.0.0:5140"
     protocol: rfc3164
-    operators:
-      - type: regex_parser
-        regex: '^(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<hostname>\S+)\s+(?P<app_name>\S+?)(?:\[(?P<proc_id>\d+)\])?:\s+(?P<message>.*)$'
-        parse_to: body
+    # The 'operators' section with the regex has been removed to allow the default parser to work.
 
 processors:
   batch:
@@ -66,55 +63,45 @@ processors:
     timeout: 5s
 
 exporters:
-  kafka:
+  kafka/metrics:
     brokers:
       - kafka-ingestion:9092
     topic: otel-metrics
     encoding: otlp_proto
     producer:
       compression: gzip
-      max_message_bytes: 1000000
-    metadata:
-      full: true
-    timeout: 10s
+
+  kafka/logs:
+    brokers:
+      - kafka-ingestion:9092
+    topic: raw-host-logs
+    encoding: otlp_json
 
   logging:
     verbosity: normal
-    sampling_initial: 5
-    sampling_thereafter: 200
 
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
-    path: /health
-    check_collector_pipeline:
-      enabled: true
-      interval: 5s
-      exporter_failure_threshold: 5
-
   pprof:
     endpoint: 0.0.0.0:1777
-
   zpages:
     endpoint: 0.0.0.0:55679
 
 service:
   extensions: [health_check, pprof, zpages]
-  
+
   pipelines:
     metrics:
       receivers: [postgresql, hostmetrics]
       processors: [memory_limiter, resourcedetection, resource, batch]
-      exporters: [kafka, logging]
+      exporters: [kafka/metrics, logging]
 
     logs:
       receivers: [syslog]
       processors: [memory_limiter, resource, batch]
-      exporters: [kafka]
+      exporters: [kafka/logs, logging]
 
   telemetry:
     logs:
       level: info
-    metrics:
-      level: detailed
-      address: 0.0.0.0:8888
