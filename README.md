@@ -19,6 +19,16 @@ vast-observability-platform/
     └── ...
 ```
 
+## Data Collected
+
+The platform collects the following types of telemetry data:
+
+- **PostgreSQL Metrics**: Database-level metrics collected via an OpenTelemetry collector, including:
+  - `postgresql.blocks_read`, `postgresql.commits`, `postgresql.db_size`, `postgresql.backends`, `postgresql.deadlocks`, `postgresql.rows`, `postgresql.operations`.
+- **PostgreSQL Logs**: Raw log events and errors from the database.
+- **PostgreSQL Queries**: Query performance and analytics from `pg_stat_statements`.
+- **Host Metrics**: System-level metrics for the database host (Centos), including CPU, memory, disk, and network usage, collected via OpenTelemetry.
+
 ## Quick Start
 
 ### 1. Start Data Collection
