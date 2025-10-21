@@ -47,39 +47,30 @@ The platform collects the following types of telemetry data:
 
 ## Quick Start
 
-### 1\. Start Data Collection & Processing
+1.  **Configure Environment**
+    Copy the master configuration file. You only need to do this once.
+    ```bash
+    cp .env.example .env
+    ```
+    Edit `.env` and fill in your `VAST_ACCESS_KEY` and `VAST_SECRET_KEY`.
 
-```bash
-# Start the entire data pipeline (ingestion and processing)
-cd ingest
-make up
+2.  **Start the Platform**
+    This single command builds and starts all services: PostgreSQL, Kafka, the collectors, and the processor.
+    ```bash
+    make up
+    ```
 
-cd ../processor
-docker-compose up -d --build
-```
+3.  **Check Platform Health**
+    Wait about 60 seconds for all services to initialize, then run:
+    ```bash
+    make health
+    ```
+    You should see `✓ Healthy` or `✓ Running` for all services.
 
-### 2\. Verify Data Flow
-
-```bash
-# Check that all services are healthy
-cd ingest
-make health
-
-# Check the processor logs to see data being consumed and exported
-cd ../processor
-docker-compose logs -f
-```
-
-### 3\. Query the Data
-
-Once data has been processed and stored in VAST DB, you can query it.
-
-```bash
-# Configure your VAST DB connection in query/.env
-cd query
-pip install -r requirements.txt
-python querier.py
-```
+4.  **Verify Data Flow**
+    * See which Kafka topics have been created: `make kafka-topics`
+    * Watch the processor logs to see data being consumed and exported to VAST: `make logs-processor`
+    * Open the Kafka UI to browse messages: `make kafka-ui` (http://localhost:8080)
 
 ## Projects
 

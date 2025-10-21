@@ -1,3 +1,5 @@
+**Note**: This service is now managed by the top-level `docker-compose.yml` and `Makefile` in the project root. Please run all `make` commands from there.
+
 # Database Observability Platform - Collection Layer
 
 **Scope**: This project implements the **data collection layer only**. It monitors databases and publishes raw telemetry to Kafka topics for downstream processing.

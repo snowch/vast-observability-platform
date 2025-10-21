@@ -1,0 +1,3 @@
+./processor/.env
+./query/.env
+./library/.env

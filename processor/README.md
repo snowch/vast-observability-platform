@@ -1,3 +1,5 @@
+**Note**: This service is now managed by the top-level `docker-compose.yml` and `Makefile` in the project root. Please run all `make` commands from there.
+
 # VAST Observability - Processor
 
 This project is the processing layer of the VAST Observability Platform. It consumes raw telemetry data from Kafka, uses the `vastdb-observability` library to process it, and exports the enriched data to VAST Database.

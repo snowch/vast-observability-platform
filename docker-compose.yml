@@ -1,0 +1,165 @@
+services:
+  # === PostgreSQL Database - Data Source ===
+  postgres:
+    build:
+      context: ./ingest/postgres
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db} -c 'SELECT 1 FROM users LIMIT 1;'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - observability
+
+  # === Zookeeper - Required for Kafka ===
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - observability
+
+  # === Kafka - VAST Message Bus (Ingestion) ===
+  kafka-ingestion:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-ingestion
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-ingestion:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - observability
+
+  # === OpenTelemetry Collector - Metrics Collection ===
+  otel-collector:
+    build:
+      context: ./ingest/otel-collector
+      dockerfile: Dockerfile
+    container_name: otel-collector
+    ports:
+      - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318" # OTLP HTTP receiver
+      - "8888:8888" # Metrics endpoint
+      - "13133:13133" # Health check
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-ingestion:
+        condition: service_healthy
+    networks:
+      - observability
+    # Note: otel-collector-config.yaml reads monitor_user/password from its *own* env
+    environment:
+      - MONITOR_USER=${MONITOR_USER:-monitor_user}
+      - MONITOR_PASSWORD=${MONITOR_PASSWORD:-monitor_password}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+
+  # === Custom Python Collector - Logs & Query Analytics ===
+  python-collector:
+    build:
+      context: ./ingest/python-collector
+      dockerfile: Dockerfile
+    container_name: python-collector
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-app_db}
+      - POSTGRES_USER=${MONITOR_USER:-monitor_user}
+      - POSTGRES_PASSWORD=${MONITOR_PASSWORD:-monitor_password}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka-ingestion:9092}
+      - COLLECTION_INTERVAL=${COLLECTION_INTERVAL:-30}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-ingestion:
+        condition: service_healthy
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # === Load Simulator - Generates continuous database traffic ===
+  load-simulator:
+    build:
+      context: ./ingest/load-simulator
+      dockerfile: Dockerfile
+    container_name: load-simulator
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-app_db}
+      - POSTGRES_USER=${POSTGRES_USER:-app_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-app_password}
+      - QUERY_RATE=${QUERY_RATE:-10}
+      - SLOW_QUERY_PROBABILITY=${SLOW_QUERY_PROBABILITY:-0.1}
+      - WRITE_PROBABILITY=${WRITE_PROBABILITY:-0.3}
+      - SYSLOG_PROBABILITY=${SYSLOG_PROBABILITY:-0.2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # === Kafka UI - For monitoring Kafka topics ===
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: ingestion
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-ingestion:9092
+    depends_on:
+      - kafka-ingestion
+    networks:
+      - observability
+
+  # === Processor Service - Consumes Kafka and writes to VAST ===
+  processor:
+    build:
+      context: . # Build context is the root
+      dockerfile: ./processor/Dockerfile
+    container_name: processor
+    networks:
+      - observability
+    env_file:
+      - .env # Loads all configs from the top-level .env
+    depends_on:
+      - kafka-ingestion
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  observability:
+    driver: bridge

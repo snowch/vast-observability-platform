@@ -6,9 +6,18 @@ import hashlib
 
 
 class QueriesProcessor(BaseProcessor[Event]):
-    """Processes raw query analytics into the unified Event model."""
+    """
+    Processes raw query analytics from various database sources.
 
-    def normalize(self, raw_query: Dict[str, Any]) -> Event:
+    This processor is designed to handle generic query performance data
+    (e.g., from Kafka topics like 'raw-queries') and normalize it into
+    the unified Event model.
+
+    While the data source might be 'postgresql', 'mongodb', etc., this
+    processor converts it into a source-agnostic 'database_query' event.
+    """
+
+    def normalize(self, raw_query: Dict[str, Any], topic: str = "") -> Event:
         """Normalizes a raw query dictionary into a structured Event."""
         payload = raw_query.get("payload", {})
         query_text = payload.get("query", "")
