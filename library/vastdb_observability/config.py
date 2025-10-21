@@ -24,8 +24,6 @@ class ProcessorConfig(BaseSettings):
 
     # Processing options
     enable_enrichment: bool = True
-    enable_aggregation: bool = False
-    aggregation_window: str = "5m"
     max_batch_size: int = 1000
     max_batch_age_seconds: int = 30
 
