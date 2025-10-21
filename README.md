@@ -4,21 +4,20 @@ Complete database observability platform for collecting, processing, and analyzi
 
 ## Project Structure
 
+This project is a monorepo containing all services required to run the observability platform. All services are managed by the top-level `docker-compose.yml` and `Makefile`.
+
 ```
+
 vast-observability-platform/
-├── ingest/                  # Data collection layer (OTel & Python collectors)
-│   ├── docker-compose.yml   # Services: PostgreSQL, Kafka, Collectors, etc.
-│   ├── Makefile             # Commands for managing the ingest layer
-│   └── ...
-├── library/                 # Core Python library for data processing
-│   ├── vastdb_observability/ # Normalizes, enriches, and models telemetry data
-│   └── ...
-├── processor/               # Kafka consumer to process and store data in VAST DB
-│   ├── Dockerfile           # Runs the processor service using the library
-│   └── ...
-└── query/                   # Scripts for querying data from VAST DB
-    └── ...
-```
+├── docker-compose.yml       \# ✅ Main Docker Compose file for ALL services
+├── Makefile                 \# ✅ Main Makefile for managing the platform
+├── .env.example             \# ✅ Master configuration file
+├── ingest/                  \# Data collection layer (OTel, Python collectors, etc.)
+├── library/                 \# Core Python library for data processing
+├── processor/               \# Kafka consumer to process and store data in VAST DB
+└── query/                   \# Scripts for querying data from VAST DB
+
+````
 
 ## Data Collection Strategies
 
