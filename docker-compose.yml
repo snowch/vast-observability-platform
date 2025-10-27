@@ -1,3 +1,7 @@
+include:
+- path: ./superset/docker-compose.yml
+
+  
 services:
   # === PostgreSQL Database - Data Source ===
   postgres:
@@ -170,32 +174,32 @@ services:
     networks:
       - proxy
 
-  # === Traefik (Proxy for Trino) ===
-  traefik:
-    image: traefik:v3.1.6
-    container_name: traefik
-    restart: unless-stopped
-    ports:
-      - 8443:443
-    networks:
-      - proxy
-    platform: linux/amd64
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command:
-      - --log.level=INFO
-      - --accesslog=true
-      - --accesslog.fields.names.HealthCheck=true
-      - --providers.docker=true
-      - --providers.docker.exposedByDefault=false
-      - --providers.docker.network=proxy
-      - --entrypoints.websecure.address=:443
-      - --entrypoints.websecure.asDefault=true
-    healthcheck:
-      test: ["CMD", "traefik", "healthcheck"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+        #  # === Traefik (Proxy for Trino) ===
+        #  traefik:
+        #    image: traefik:v3.1.6
+        #    container_name: traefik
+        #    restart: unless-stopped
+        #    ports:
+        #      - 8443:443
+        #    networks:
+        #      - proxy
+        #    platform: linux/amd64
+        #    volumes:
+        #      - /var/run/docker.sock:/var/run/docker.sock
+        #    command:
+        #      - --log.level=INFO
+        #      - --accesslog=true
+        #      - --accesslog.fields.names.HealthCheck=true
+        #      - --providers.docker=true
+        #      - --providers.docker.exposedByDefault=false
+        #      - --providers.docker.network=proxy
+        #      - --entrypoints.websecure.address=:443
+        #      - --entrypoints.websecure.asDefault=true
+        #    healthcheck:
+        #      test: ["CMD", "traefik", "healthcheck"]
+        #      interval: 10s
+        #      timeout: 5s
+        #      retries: 3
 
   # === Trino (Analytics Query Engine) ===
   trino:
@@ -209,6 +213,7 @@ services:
     ports:
       - 18080:8080
     networks:
+      - observability
       - proxy
     platform: linux/amd64
     env_file:
@@ -220,143 +225,146 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
       interval: 30s
       retries: 10
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.mytrino.rule=PathPrefix(`/`)
-      - traefik.http.routers.mytrino.entrypoints=websecure
-      - traefik.http.routers.mytrino.tls=true
-      - traefik.http.routers.mytrino.middlewares=trino-headers@docker
-      - traefik.http.middlewares.trino-headers.headers.customRequestHeaders.X-Forwarded-Proto=https
-      - traefik.http.services.trino.loadbalancer.healthcheck.path=/v1/info
-      - traefik.http.services.trino.loadbalancer.healthcheck.interval=10s
-
-  # === Superset Services ===
-  superset-redis:
-    image: redis:7
-    container_name: superset_cache
-    restart: unless-stopped
-    volumes:
-      - superset_redis_cache:/data
-    networks:
-      - observability
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  superset-db:
-    image: postgres:15
-    container_name: superset_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${SUPERSET_POSTGRES_USER:-superset}
-      POSTGRES_PASSWORD: ${SUPERSET_POSTGRES_PASSWORD:-superset}
-      POSTGRES_DB: ${SUPERSET_POSTGRES_DB:-superset}
-      EXAMPLES_USER: ${EXAMPLES_USER:-examples}
-      EXAMPLES_PASSWORD: ${EXAMPLES_PASSWORD:-examples}
-      EXAMPLES_DB: ${EXAMPLES_DB:-examples}
-    volumes:
-      - superset_db_home:/var/lib/postgresql/data
-      - ./superset/docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-    networks:
-      - observability
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${SUPERSET_POSTGRES_USER:-superset} -d ${SUPERSET_POSTGRES_DB:-superset}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  superset-app:
-    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
-    container_name: superset_app
-    command: bash -c "pip3 install trino[sqlalchemy] && /app/docker/docker-bootstrap.sh app-gunicorn"
-    user: "root"
-    restart: unless-stopped
-    ports:
-      - "8088:8088"
-    depends_on:
-      superset-db:
-        condition: service_healthy
-      superset-redis:
-        condition: service_healthy
-    volumes:
-      - ./superset/docker:/app/docker
-      - superset_home:/app/superset_home
-    networks:
-      - observability
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8088/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 300s
-
-  superset-init:
-    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
-    container_name: superset_init
-    command: ["/app/docker/docker-init.sh"]
-    depends_on:
-      superset-db:
-        condition: service_healthy
-      superset-redis:
-        condition: service_healthy
-    user: "root"
-    volumes:
-      - ./superset/docker:/app/docker
-      - superset_home:/app/superset_home
-    networks:
-      - observability
-    healthcheck:
-      disable: true
-
-  superset-worker:
-    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
-    container_name: superset_worker
-    command: ["/app/docker/docker-bootstrap.sh", "worker"]
-    restart: unless-stopped
-    depends_on:
-      superset-db:
-        condition: service_healthy
-      superset-redis:
-        condition: service_healthy
-    user: "root"
-    volumes:
-      - ./superset/docker:/app/docker
-      - superset_home:/app/superset_home
-    networks:
-      - observability
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 300s
-
-  superset-worker-beat:
-    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
-    container_name: superset_worker_beat
-    command: ["/app/docker/docker-bootstrap.sh", "beat"]
-    restart: unless-stopped
-    depends_on:
-      superset-db:
-        condition: service_healthy
-      superset-redis:
-        condition: service_healthy
-    user: "root"
-    volumes:
-      - ./superset/docker:/app/docker
-      - superset_home:/app/superset_home
-    networks:
-      - observability
-    healthcheck:
-      disable: true
-
+        #    labels:
+        #      - traefik.enable=true
+        #      - traefik.http.routers.mytrino.rule=PathPrefix(`/`)
+        #      - traefik.http.routers.mytrino.entrypoints=websecure
+        #      - traefik.http.routers.mytrino.tls=true
+        #      - traefik.http.routers.mytrino.middlewares=trino-headers@docker
+        #      - traefik.http.middlewares.trino-headers.headers.customRequestHeaders.X-Forwarded-Proto=https
+        #      - traefik.http.services.trino.loadbalancer.healthcheck.path=/v1/info
+        #      - traefik.http.services.trino.loadbalancer.healthcheck.interval=10s
+        #
+        #
+        #  # === Superset Services ===
+        #  superset-redis:
+        #    image: redis:7
+        #    container_name: superset_cache
+        #    restart: unless-stopped
+        #    volumes:
+        #      - superset_redis_cache:/data
+        #    networks:
+        #      - observability
+        #    healthcheck:
+        #      test: ["CMD", "redis-cli", "ping"]
+        #      interval: 10s
+        #      timeout: 5s
+        #      retries: 5
+        #
+        #  superset-db:
+        #    image: postgres:15
+        #    container_name: superset_db
+        #    restart: unless-stopped
+        #    environment:
+        #      POSTGRES_USER: ${SUPERSET_POSTGRES_USER:-superset}
+        #      POSTGRES_PASSWORD: ${SUPERSET_POSTGRES_PASSWORD:-superset}
+        #      POSTGRES_DB: ${SUPERSET_POSTGRES_DB:-superset}
+        #      EXAMPLES_USER: ${EXAMPLES_USER:-examples}
+        #      EXAMPLES_PASSWORD: ${EXAMPLES_PASSWORD:-examples}
+        #      EXAMPLES_DB: ${EXAMPLES_DB:-examples}
+        #    volumes:
+        #      - superset_db_home:/var/lib/postgresql/data
+        #      - ./superset/docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+        #    networks:
+        #      - observability
+        #    healthcheck:
+        #      test: ["CMD-SHELL", "pg_isready -U ${SUPERSET_POSTGRES_USER:-superset} -d ${SUPERSET_POSTGRES_DB:-superset}"]
+        #      interval: 10s
+        #      timeout: 5s
+        #      retries: 5
+        #
+        #  superset-app:
+        #    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+        #    container_name: superset_app
+        #    command: bash -c "pip3 install trino[sqlalchemy] && /app/docker/docker-bootstrap.sh app-gunicorn"
+        #    user: "root"
+        #    env_file: 
+        #      - .env
+        #    restart: unless-stopped
+        #    ports:
+        #      - "8088:8088"
+        #    depends_on:
+        #      superset-db:
+        #        condition: service_healthy
+        #      superset-redis:
+        #        condition: service_healthy
+        #    volumes:
+        #      - ./superset/docker:/app/docker
+        #      - superset_home:/app/superset_home
+        #    networks:
+        #      - observability
+        #    healthcheck:
+        #      test: ["CMD-SHELL", "curl -f http://localhost:8088/health"]
+        #      interval: 30s
+        #      timeout: 10s
+        #      retries: 5
+        #      start_period: 300s
+        #
+        #  superset-init:
+        #    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+        #    container_name: superset_init
+        #    command: ["/app/docker/docker-init.sh"]
+        #    depends_on:
+        #      superset-db:
+        #        condition: service_healthy
+        #      superset-redis:
+        #        condition: service_healthy
+        #    user: "root"
+        #    volumes:
+        #      - ./superset/docker:/app/docker
+        #      - superset_home:/app/superset_home
+        #    networks:
+        #      - observability
+        #    healthcheck:
+        #      disable: true
+        #
+        #  superset-worker:
+        #    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+        #    container_name: superset_worker
+        #    command: ["/app/docker/docker-bootstrap.sh", "worker"]
+        #    restart: unless-stopped
+        #    depends_on:
+        #      superset-db:
+        #        condition: service_healthy
+        #      superset-redis:
+        #        condition: service_healthy
+        #    user: "root"
+        #    volumes:
+        #      - ./superset/docker:/app/docker
+        #      - superset_home:/app/superset_home
+        #    networks:
+        #      - observability
+        #    healthcheck:
+        #      test: ["CMD-SHELL", "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME"]
+        #      interval: 30s
+        #      timeout: 10s
+        #      retries: 5
+        #      start_period: 300s
+        #
+        #  superset-worker-beat:
+        #    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+        #    container_name: superset_worker_beat
+        #    command: ["/app/docker/docker-bootstrap.sh", "beat"]
+        #    restart: unless-stopped
+        #    depends_on:
+        #      superset-db:
+        #        condition: service_healthy
+        #      superset-redis:
+        #        condition: service_healthy
+        #    user: "root"
+        #    volumes:
+        #      - ./superset/docker:/app/docker
+        #      - superset_home:/app/superset_home
+        #    networks:
+        #      - observability
+        #    healthcheck:
+        #      disable: true
+        #
 volumes:
   postgres_data:
-  superset_db_home:
-  superset_redis_cache:
-  superset_home:
+    # superset_db_home:
+    # superset_redis_cache:
+    # superset_home:
 
 networks:
   observability:

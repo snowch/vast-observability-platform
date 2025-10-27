@@ -12,7 +12,8 @@ RESET = "\033[0m"
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # Set the Docker host or IP address
-DOCKER_HOST_OR_IP = os.getenv("DOCKER_HOST_OR_IP")
+DOCKER_HOST_OR_IP='localhost' # os.getenv("DOCKER_HOST_OR_IP")
+TRINO_PORT='18080'
 
 # Initialize Superset client
 client = SupersetClient(
@@ -44,22 +45,16 @@ base_data = {
 vastdb_data = {
     **base_data,
     "database_name": "Trino VastDB",
-    "sqlalchemy_uri": f"trino://admin@{DOCKER_HOST_OR_IP}:8443/vast?verify=false"
+    "sqlalchemy_uri": f"trino://admin@localhost:18080/vast",
+    "extra": json.dumps({
+        "engine_params": {
+            "connect_args": {
+                "http_scheme": "http",
+            }
+        }
+    })
 }
 
-# Data for the "Trino Vast Iceberg" database
-iceberg_data = {
-    **base_data,
-    "database_name": "Trino Vast Iceberg",
-    "sqlalchemy_uri": f"trino://admin@{DOCKER_HOST_OR_IP}:8443/iceberg?verify=false"
-}
-
-# Data for the "Trino Vast Hive" database
-hive_data = {
-    **base_data,
-    "database_name": "Trino Vast Hive",
-    "sqlalchemy_uri": f"trino://admin@{DOCKER_HOST_OR_IP}:8443/hive?verify=false"
-}
 
 def delete_database_if_exists(database_name, force_delete):
     # Fetch list of databases
@@ -94,8 +89,6 @@ args = parser.parse_args()
 
 # Delete the databases if they exist
 delete_database_if_exists("Trino VastDB", args.force_delete)
-delete_database_if_exists("Trino Vast Iceberg", args.force_delete)
-delete_database_if_exists("Trino Vast Hive", args.force_delete)
 
 print("""
 #########################################
@@ -109,17 +102,5 @@ response_vastdb = client.post(
     json=vastdb_data
 )
 
-response_iceberg = client.post(
-    url=f"http://{DOCKER_HOST_OR_IP}:8088/api/v1/database/",
-    json=iceberg_data
-)
-
-response_hive = client.post(
-    url=f"http://{DOCKER_HOST_OR_IP}:8088/api/v1/database/",
-    json=hive_data
-)
-
 # Print the response for both database creation requests
 print("VastDB Response:", response_vastdb.text)
-print("Iceberg Response:", response_iceberg.text)
-print("Hive Response:", response_hive.text)

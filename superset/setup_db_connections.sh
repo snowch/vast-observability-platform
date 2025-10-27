@@ -6,7 +6,8 @@ set -e
 # Change to the script's directory
 cd "$(dirname "$0")"
 
-source ../.env-local
+# source ../.env-local
+DOCKER_HOST_OR_IP='localhost'
 
 # Docker image and container name (update with your image and container name)
 IMAGE_NAME="python:3.10-slim"  # Replace with your Python image name
