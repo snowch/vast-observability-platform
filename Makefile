@@ -1,7 +1,8 @@
 .PHONY: help build up down restart logs ps clean health debug \
         test-library format-library lint-library typecheck-library \
         run-query create-tables drop-tables \
-        trino-up trino-down trino-logs trino-cli
+        trino-up trino-down trino-logs trino-cli \
+        superset-up superset-down superset-logs superset-cli
 
 # Auto-detect docker compose command
 DOCKER_COMPOSE := $(shell which docker-compose >/dev/null 2>&1 && echo "docker-compose" || echo "docker compose")
@@ -15,7 +16,7 @@ help:
 	@echo ""
 	@echo "Core Platform:"
 	@echo "  make build            - Build all Docker images"
-	@echo "  make up               - Start all services (ingest + processor + trino)"
+	@echo "  make up               - Start all services (ingest + processor + trino + superset)"
 	@echo "  make down             - Stop all services"
 	@echo "  make restart          - Restart all services"
 	@echo "  make logs             - View logs from ALL services"
@@ -35,6 +36,12 @@ help:
 	@echo "  make trino-down       - Stop only Trino and its proxy"
 	@echo "  make trino-logs       - View logs for Trino and Traefik"
 	@echo "  make trino-cli        - Open the Trino command-line interface"
+	@echo ""
+	@echo "Analytics Layer (Superset):"
+	@echo "  make superset-up      - Start only Superset services"
+	@echo "  make superset-down    - Stop only Superset services"
+	@echo "  make superset-logs    - View logs for Superset"
+	@echo "  make superset-cli     - Open a shell in the Superset app container"
 	@echo ""
 	@echo "Library Development:"
 	@echo "  make test-library     - Run library unit tests"
@@ -64,7 +71,7 @@ build:
 	$(DOCKER_COMPOSE) build
 
 up:
-	@echo "Starting all services (ingest + processor + trino)..."
+	@echo "Starting all services (ingest + processor + trino + superset)..."
 	@cp -n .env.example .env # Copy .env if it doesn't exist
 	$(DOCKER_COMPOSE) up -d
 	@echo ""
@@ -76,7 +83,8 @@ up:
 	@echo "  Kafka UI: http://localhost:8080"
 	@echo "  OTel Health: http://localhost:13133/health"
 	@echo "  Trino UI (via proxy): https://${DOCKER_HOST_OR_IP:-localhost}:8443/ui"
-	@echo "  PostgreSQL: localhost:5432"
+	@echo "  Superset UI: http://localhost:8088 (admin/admin)"
+	@echo "  PostgreSQL (App): localhost:5432"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  make health          # Check all services"
@@ -108,8 +116,8 @@ clean:
 health:
 	@echo "=== Service Health Check ==="
 	@echo ""
-	@echo "PostgreSQL:"
-	@$(DOCKER_COMPOSE) exec -T postgres pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db} > /dev/null 2>&1 && echo "  ✓ Healthy" || echo "  ❌ Not ready"
+	@echo "PostgreSQL (App):"
+	@$(DOCKER_COMPOSE) exec -T postgres-db pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db} > /dev/null 2>&1 && echo "  ✓ Healthy" || echo "  ❌ Not ready"
 	@echo ""
 	@echo "Kafka Ingestion:"
 	@$(DOCKER_COMPOSE) exec -T kafka-ingestion kafka-topics --bootstrap-server localhost:9092 --list > /dev/null 2>&1 && echo "  ✓ Healthy" || echo "  ❌ Not responding"
@@ -132,6 +140,15 @@ health:
 	@echo "Trino:"
 	@$(DOCKER_COMPOSE) ps | grep trino | grep -q "Up" | grep -q "healthy" && echo "  ✓ Healthy" || echo "  ❌ Not running or unhealthy"
 	@echo ""
+	@echo "Superset DB (PostgreSQL):"
+	@$(DOCKER_COMPOSE) exec -T superset-db pg_isready -U ${SUPERSET_POSTGRES_USER:-superset} -d ${SUPERSET_POSTGRES_DB:-superset} > /dev/null 2>&1 && echo "  ✓ Healthy" || echo "  ❌ Not ready"
+	@echo ""
+	@echo "Superset Cache (Redis):"
+	@$(DOCKER_COMPOSE) exec -T superset-redis redis-cli ping > /dev/null 2>&1 && echo "  ✓ Healthy" || echo "  ❌ Not responding"
+	@echo ""
+	@echo "Superset App:"
+	@$(DOCKER_COMPOSE) ps | grep superset_app | grep -q "Up" | grep -q "healthy" && echo "  ✓ Healthy" || echo "  ❌ Not running or unhealthy (may still be starting)"
+	@echo ""
 
 debug:
 	@echo "=== Debugging Services ==="
@@ -147,6 +164,15 @@ debug:
 	@echo ""
 	@echo "=== Traefik Logs (last 50 lines) ==="
 	$(DOCKER_COMPOSE) logs --tail=50 traefik || echo "Traefik not found"
+	@echo ""
+	@echo "=== Superset App Logs (last 50 lines) ==="
+	$(DOCKER_COMPOSE) logs --tail=50 superset-app || echo "Superset App not found"
+	@echo ""
+	@echo "=== Superset Worker Logs (last 50 lines) ==="
+	$(DOCKER_COMPOSE) logs --tail=50 superset-worker || echo "Superset Worker not found"
+	@echo ""
+	@echo "=== Superset DB Logs (last 50 lines) ==="
+	$(DOCKER_COMPOSE) logs --tail=50 superset-db || echo "Superset DB not found"
 	@echo ""
 	@echo "=== OTel Collector Logs (last 50 lines) ==="
 	$(DOCKER_COMPOSE) logs --tail=50 otel-collector || echo "OTel Collector not found"
@@ -217,33 +243,31 @@ trino-cli:
 	@echo "Connecting to Trino CLI..."
 	@echo "Note: Trino may take a minute to start. If this fails, wait and retry."
 	@echo "Host: https://${DOCKER_HOST_OR_IP:-localhost}:8443"
-	$(DOCKER_COMPOSE) exec trino trino --server https://localhost:8080 --insecure
-	# The trino container's trino CLI connects to its *internal* port 8080, not the external 8443 proxy
-	# We will use the command from the trino/trino_cli.sh but run it from the root docker compose
-	# The original trino_cli.sh `docker exec -it trino trino --server https://${DOCKER_HOST_OR_IP}:8443 --insecure`
-	# This implies connecting from *outside* the docker network to the *exposed* port.
-	# Let's use the one from the README:
-	@echo "Connecting to Trino via Docker exec..."
 	@echo "Trino UI: https://${DOCKER_HOST_OR_IP:-localhost}:8443/ui"
 	@echo "If this fails, run 'make logs-trino' to check status."
-	$(DOCKER_COMPOSE) exec trino trino --server https://trino:8080 --insecure
-	# The original command `docker exec -it trino trino --server https://${DOCKER_HOST_OR_IP}:8443 --insecure`
-	# is also valid if you want to test the full proxy stack from within the container.
-	# But connecting directly to the service `trino:8080` is more robust for a CLI check.
-	# The healthcheck uses `http://localhost:8080/v1/info` *inside* the container.
-	# Let's use that as the server target.
 	$(DOCKER_COMPOSE) exec trino trino --server http://localhost:8080
-	# The original `trino.properties` has `http-server.http.port=8080`, so http, not https.
-	# The traefik proxy *adds* https.
-	# The trino-cli.sh has `https://${DOCKER_HOST_OR_IP}:8443 --insecure`
-	# This is confusing. I will use the one from the trino README:
-	@echo "Connecting to Trino at https://${DOCKER_HOST_OR_IP:-localhost}:8443"
-	docker exec -it trino trino --server https://${DOCKER_HOST_OR_IP:-localhost}:8443 --insecure
-	# The `docker exec` command is run from the host, but the `trino` command runs
-	# inside the `trino` container. The container itself may not know `DOCKER_HOST_OR_IP`.
-	# The simplest command is to connect to itself on its internal port.
-	@echo "Connecting to Trino CLI (internal port)..."
-	$(DOCKER_COMPOSE) exec trino trino --server http://localhost:8080
+
+# === Analytics Layer (Superset) ===
+
+superset-up:
+	@echo "Starting Superset services..."
+	@cp -n .env.example .env
+	$(DOCKER_COMPOSE) up -d superset-redis superset-db superset-app superset-init superset-worker superset-worker-beat
+	@echo ""
+	@echo "✓ Superset started!"
+	@echo "  Superset UI: http://localhost:8088 (admin/${ADMIN_PASSWORD:-admin})"
+
+superset-down:
+	@echo "Stopping Superset services..."
+	$(DOCKER_COMPOSE) stop superset-redis superset-db superset-app superset-init superset-worker superset-worker-beat
+
+superset-logs:
+	@echo "Following Superset logs..."
+	$(DOCKER_COMPOSE) logs -f superset-app superset-worker superset-worker-beat superset-init
+
+superset-cli:
+	@echo "Opening shell in Superset container..."
+	$(DOCKER_COMPOSE) exec superset-app /bin/bash
 
 # === Library Development Targets ===
 
@@ -278,11 +302,12 @@ typecheck-library:
 # === Ingestion Layer Details (Keep as before) ===
 
 shell-pg:
-	@echo "Opening PostgreSQL shell..."
-	$(DOCKER_COMPOSE) exec postgres psql -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db}
+	@echo "Opening PostgreSQL shell for application DB..."
+	$(DOCKER_COMPOSE) exec postgres-db psql -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db}
 
 kafka-ui:
-	@which open > /dev/null && open http://localhost:8080 || xdg-open http://localhost:8080 || echo "Open http://localhost:8080"
+	@which open > /dev/null && open http://localhost:8080 || \
+	xdg-open http://localhost:8080 || echo "Open http://localhost:8080"
 
 logs-otel:
 	$(DOCKER_COMPOSE) logs -f otel-collector
@@ -294,7 +319,7 @@ logs-simulator:
 	$(DOCKER_COMPOSE) logs -f load-simulator
 
 logs-postgres:
-	$(DOCKER_COMPOSE) logs -f postgres
+	$(DOCKER_COMPOSE) logs -f postgres-db
 
 logs-kafka:
 	$(DOCKER_COMPOSE) logs -f kafka-ingestion
@@ -351,9 +376,8 @@ kafka-consume-host-logs:
 
 check-pg-stats:
 	@echo "Checking pg_stat_statements..."
-	$(DOCKER_COMPOSE) exec -T postgres psql -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db} -c "\
+	$(DOCKER_COMPOSE) exec -T postgres-db psql -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db} -c "\
 		SELECT COUNT(*) as total_queries FROM pg_stat_statements;"
-
 # Test Data Collection
 collect-test-data:
 	@echo "Collecting test data from Kafka topics..."

@@ -230,8 +230,133 @@ services:
       - traefik.http.services.trino.loadbalancer.healthcheck.path=/v1/info
       - traefik.http.services.trino.loadbalancer.healthcheck.interval=10s
 
+  # === Superset Services ===
+  superset-redis:
+    image: redis:7
+    container_name: superset_cache
+    restart: unless-stopped
+    volumes:
+      - superset_redis_cache:/data
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  superset-db:
+    image: postgres:15
+    container_name: superset_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SUPERSET_POSTGRES_USER:-superset}
+      POSTGRES_PASSWORD: ${SUPERSET_POSTGRES_PASSWORD:-superset}
+      POSTGRES_DB: ${SUPERSET_POSTGRES_DB:-superset}
+      EXAMPLES_USER: ${EXAMPLES_USER:-examples}
+      EXAMPLES_PASSWORD: ${EXAMPLES_PASSWORD:-examples}
+      EXAMPLES_DB: ${EXAMPLES_DB:-examples}
+    volumes:
+      - superset_db_home:/var/lib/postgresql/data
+      - ./superset/docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SUPERSET_POSTGRES_USER:-superset} -d ${SUPERSET_POSTGRES_DB:-superset}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  superset-app:
+    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+    container_name: superset_app
+    command: bash -c "pip3 install trino[sqlalchemy] && /app/docker/docker-bootstrap.sh app-gunicorn"
+    user: "root"
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    volumes:
+      - ./superset/docker:/app/docker
+      - superset_home:/app/superset_home
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+  superset-init:
+    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+    container_name: superset_init
+    command: ["/app/docker/docker-init.sh"]
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    user: "root"
+    volumes:
+      - ./superset/docker:/app/docker
+      - superset_home:/app/superset_home
+    networks:
+      - observability
+    healthcheck:
+      disable: true
+
+  superset-worker:
+    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+    container_name: superset_worker
+    command: ["/app/docker/docker-bootstrap.sh", "worker"]
+    restart: unless-stopped
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    user: "root"
+    volumes:
+      - ./superset/docker:/app/docker
+      - superset_home:/app/superset_home
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+  superset-worker-beat:
+    image: apachesuperset.docker.scarf.sh/apache/superset:${TAG:-4.0.2}
+    container_name: superset_worker_beat
+    command: ["/app/docker/docker-bootstrap.sh", "beat"]
+    restart: unless-stopped
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    user: "root"
+    volumes:
+      - ./superset/docker:/app/docker
+      - superset_home:/app/superset_home
+    networks:
+      - observability
+    healthcheck:
+      disable: true
+
 volumes:
   postgres_data:
+  superset_db_home:
+  superset_redis_cache:
+  superset_home:
 
 networks:
   observability:
