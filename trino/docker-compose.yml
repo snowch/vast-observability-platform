@@ -13,9 +13,7 @@ services:
     volumes:
       - ./templates:/workspace/templates
       - ./generated:/workspace/output
-    command: "-f /workspace/templates/hive.properties-template -o /workspace/output/hive.properties \
-              -f /workspace/templates/vast.properties-template -o /workspace/output/vast.properties \
-              -f /workspace/templates/iceberg.properties-template -o /workspace/output/iceberg.properties"
+    command: "-f /workspace/templates/vast.properties-template -o /workspace/output/vast.properties" 
 
   traefik:
     image: traefik:v3.1.6
@@ -65,8 +63,6 @@ services:
       - path: ./.env-aws-creds
     volumes:
       - ./generated/vast.properties:/etc/trino/catalog/vast.properties:ro
-      - ./generated/hive.properties:/etc/trino/catalog/hive.properties:ro
-      - ./generated/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
       - ./config.properties:/etc/trino/config.properties:ro
     healthcheck:
       # test: ["CMD", "trino", "--execute", "SELECT 'success'"]
