@@ -12,7 +12,7 @@ RESET = "\033[0m"
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # Set the Docker host or IP address
-DOCKER_HOST_OR_IP='localhost' # os.getenv("DOCKER_HOST_OR_IP")
+DOCKER_HOST_OR_IP=os.getenv("DOCKER_HOST_OR_IP")
 TRINO_PORT='18080'
 
 # Initialize Superset client
@@ -45,7 +45,7 @@ base_data = {
 vastdb_data = {
     **base_data,
     "database_name": "Trino VastDB",
-    "sqlalchemy_uri": f"trino://admin@localhost:18080/vast",
+    "sqlalchemy_uri": f"trino://admin@${DOCKER_HOST_OR_IP}:18080/vast",
     "extra": json.dumps({
         "engine_params": {
             "connect_args": {
