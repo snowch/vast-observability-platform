@@ -3,6 +3,7 @@ import vastdb
 import pyarrow as pa
 from dotenv import load_dotenv
 from ibis import _
+from pathlib import Path  # Import Path
 
 def query_and_print(table, table_name: str, limit=5):
     """Executes a select query on a table and prints the results."""
@@ -60,7 +61,9 @@ def query_syslog_events(schema, limit=5):
 
 def main():
     """Connects to VAST DB and queries the main observability tables."""
-    load_dotenv()
+    # --- FIX: Load .env from the project root directory ---
+    env_path = Path(__file__).parent.parent / ".env"
+    load_dotenv(dotenv_path=env_path)
     
     # --- Configuration ---
     ENDPOINT = os.getenv("VAST_ENDPOINT")
@@ -72,7 +75,8 @@ def main():
     # --- Validation ---
     if not all([ENDPOINT, ACCESS_KEY, SECRET_KEY, BUCKET_NAME, SCHEMA_NAME]):
         print("❌ Error: Missing one or more required environment variables.")
-        print("Please create a .env file based on .env.example and fill it out.")
+        print(f"Attempted to load from: {env_path}")
+        print("Please ensure the top-level .env file exists and is populated.")
         return
 
     print("Connecting to VAST Database...")

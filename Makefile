@@ -1,6 +1,6 @@
 .PHONY: help build up down restart logs ps clean health debug \
         test-library format-library lint-library typecheck-library \
-        run-query create-tables
+        run-query create-tables drop-tables
 
 # Auto-detect docker compose command
 DOCKER_COMPOSE := $(shell which docker-compose >/dev/null 2>&1 && echo "docker-compose" || echo "docker compose")
@@ -27,6 +27,7 @@ help:
 	@echo "  make logs-processor   - View only the processor logs"
 	@echo "  make run-query        - Run the VAST DB query script"
 	@echo "  make create-tables    - Create/Update VAST DB tables (requires library install)"
+	@echo "  make drop-tables      - Drop ALL VAST DB tables (requires library install)"
 	@echo ""
 	@echo "Library Development:"
 	@echo "  make test-library     - Run library unit tests"
@@ -156,6 +157,20 @@ create-tables:
 	@cd library && \
 	pip install -e .[dev] > /dev/null 2>&1 && \
 	python vast_table_creator.py && \
+	cd ..
+
+drop-tables:
+	@echo "⚠️ WARNING: This will drop ALL observability tables in VAST DB!"
+	@read -p "Are you sure you want to continue? [y/N] " confirm; \
+	case "$$confirm" in \
+	  y|Y|yes|Yes|YES) echo "Proceeding..." ;; \
+	  *) echo "Aborting."; exit 1 ;; \
+	esac
+	@echo "Dropping VAST DB tables using library script..."
+	@cp -n .env.example .env # Ensure .env exists for the script
+	@cd library && \
+	pip install -e .[dev] > /dev/null 2>&1 && \
+	python vast_table_creator.py --recreate && \
 	cd ..
 
 # === Library Development Targets ===
