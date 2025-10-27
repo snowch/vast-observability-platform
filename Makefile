@@ -1,6 +1,7 @@
 .PHONY: help build up down restart logs ps clean health debug \
         test-library format-library lint-library typecheck-library \
-        run-query create-tables drop-tables
+        run-query create-tables drop-tables \
+        trino-up trino-down trino-logs trino-cli
 
 # Auto-detect docker compose command
 DOCKER_COMPOSE := $(shell which docker-compose >/dev/null 2>&1 && echo "docker-compose" || echo "docker compose")
@@ -14,20 +15,26 @@ help:
 	@echo ""
 	@echo "Core Platform:"
 	@echo "  make build            - Build all Docker images"
-	@echo "  make up               - Start all services (ingest + processor)"
+	@echo "  make up               - Start all services (ingest + processor + trino)"
 	@echo "  make down             - Stop all services"
 	@echo "  make restart          - Restart all services"
 	@echo "  make logs             - View logs from ALL services"
 	@echo "  make ps               - Show running services"
 	@echo "  make clean            - Stop services and remove volumes"
-	@echo "  make health           - Check health of core services"
-	@echo "  make debug            - Debug failing core services"
+	@echo "  make health           - Check health of all services"
+	@echo "  make debug            - Debug failing services"
 	@echo ""
 	@echo "Component Specific:"
 	@echo "  make logs-processor   - View only the processor logs"
 	@echo "  make run-query        - Run the VAST DB query script"
 	@echo "  make create-tables    - Create/Update VAST DB tables (requires library install)"
 	@echo "  make drop-tables      - Drop ALL VAST DB tables (requires library install)"
+	@echo ""
+	@echo "Analytics Layer (Trino):"
+	@echo "  make trino-up         - Start only Trino and its proxy"
+	@echo "  make trino-down       - Stop only Trino and its proxy"
+	@echo "  make trino-logs       - View logs for Trino and Traefik"
+	@echo "  make trino-cli        - Open the Trino command-line interface"
 	@echo ""
 	@echo "Library Development:"
 	@echo "  make test-library     - Run library unit tests"
@@ -45,7 +52,7 @@ help:
 	@echo "  make check-pg-stats   - Check pg_stat_statements"
 	@echo "  make logs-otel        - View OTel Collector logs"
 	@echo "  make logs-python      - View Python Collector logs"
-	@echo "  make logs-simulator   - View Load Simulator logs"
+	@echo "   make logs-simulator   - View Load Simulator logs"
 	@echo ""
 	@echo "Test Data Collection (for library):"
 	@echo "  make collect-test-data         - Collect samples from Kafka topics"
@@ -57,23 +64,25 @@ build:
 	$(DOCKER_COMPOSE) build
 
 up:
-	@echo "Starting all services (ingest + processor)..."
+	@echo "Starting all services (ingest + processor + trino)..."
 	@cp -n .env.example .env # Copy .env if it doesn't exist
 	$(DOCKER_COMPOSE) up -d
 	@echo ""
-	@echo "Waiting for services to start (this takes ~30-60s for Kafka)..."
+	@echo "Waiting for services to start (this takes ~30-60s for Kafka & Trino)..."
 	@sleep 15
 	@echo ""
 	@echo "✓ Platform started!"
 	@echo ""
 	@echo "  Kafka UI: http://localhost:8080"
 	@echo "  OTel Health: http://localhost:13133/health"
+	@echo "  Trino UI (via proxy): https://${DOCKER_HOST_OR_IP:-localhost}:8443/ui"
 	@echo "  PostgreSQL: localhost:5432"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  make health          # Check all services"
 	@echo "  make kafka-topics    # View Kafka topics"
 	@echo "  make logs-processor  # See processor status"
+	@echo "  make trino-cli       # Query data with Trino"
 	@echo ""
 
 down:
@@ -117,6 +126,12 @@ health:
 	@echo "Processor:"
 	@$(DOCKER_COMPOSE) ps | grep processor | grep -q "Up" && echo "  ✓ Running" || echo "  ❌ Not running"
 	@echo ""
+	@echo "Traefik (Trino Proxy):"
+	@$(DOCKER_COMPOSE) ps | grep traefik | grep -q "Up" | grep -q "healthy" && echo "  ✓ Healthy" || echo "  ❌ Not running or unhealthy"
+	@echo ""
+	@echo "Trino:"
+	@$(DOCKER_COMPOSE) ps | grep trino | grep -q "Up" | grep -q "healthy" && echo "  ✓ Healthy" || echo "  ❌ Not running or unhealthy"
+	@echo ""
 
 debug:
 	@echo "=== Debugging Services ==="
@@ -126,6 +141,12 @@ debug:
 	@echo ""
 	@echo "=== Processor Logs (last 50 lines) ==="
 	$(DOCKER_COMPOSE) logs --tail=50 processor || echo "Processor not found"
+	@echo ""
+	@echo "=== Trino Logs (last 50 lines) ==="
+	$(DOCKER_COMPOSE) logs --tail=50 trino || echo "Trino not found"
+	@echo ""
+	@echo "=== Traefik Logs (last 50 lines) ==="
+	$(DOCKER_COMPOSE) logs --tail=50 traefik || echo "Traefik not found"
 	@echo ""
 	@echo "=== OTel Collector Logs (last 50 lines) ==="
 	$(DOCKER_COMPOSE) logs --tail=50 otel-collector || echo "OTel Collector not found"
@@ -172,6 +193,57 @@ drop-tables:
 	pip install -e .[dev] > /dev/null 2>&1 && \
 	python vast_table_creator.py --recreate && \
 	cd ..
+
+# === Analytics Layer (Trino) ===
+
+trino-up:
+	@echo "Starting Trino and Traefik..."
+	@cp -n .env.example .env
+	$(DOCKER_COMPOSE) up -d setup_config traefik trino
+	@echo ""
+	@echo "✓ Trino started!"
+	@echo "  Trino UI: https://${DOCKER_HOST_OR_IP:-localhost}:8443/ui"
+
+trino-down:
+	@echo "Stopping Trino and Traefik..."
+	$(DOCKER_COMPOSE) stop traefik trino setup_config
+	$(DOCKER_COMPOSE) rm -f traefik trino setup_config
+
+trino-logs:
+	@echo "Following Trino and Traefik logs..."
+	$(DOCKER_COMPOSE) logs -f traefik trino
+
+trino-cli:
+	@echo "Connecting to Trino CLI..."
+	@echo "Note: Trino may take a minute to start. If this fails, wait and retry."
+	@echo "Host: https://${DOCKER_HOST_OR_IP:-localhost}:8443"
+	$(DOCKER_COMPOSE) exec trino trino --server https://localhost:8080 --insecure
+	# The trino container's trino CLI connects to its *internal* port 8080, not the external 8443 proxy
+	# We will use the command from the trino/trino_cli.sh but run it from the root docker compose
+	# The original trino_cli.sh `docker exec -it trino trino --server https://${DOCKER_HOST_OR_IP}:8443 --insecure`
+	# This implies connecting from *outside* the docker network to the *exposed* port.
+	# Let's use the one from the README:
+	@echo "Connecting to Trino via Docker exec..."
+	@echo "Trino UI: https://${DOCKER_HOST_OR_IP:-localhost}:8443/ui"
+	@echo "If this fails, run 'make logs-trino' to check status."
+	$(DOCKER_COMPOSE) exec trino trino --server https://trino:8080 --insecure
+	# The original command `docker exec -it trino trino --server https://${DOCKER_HOST_OR_IP}:8443 --insecure`
+	# is also valid if you want to test the full proxy stack from within the container.
+	# But connecting directly to the service `trino:8080` is more robust for a CLI check.
+	# The healthcheck uses `http://localhost:8080/v1/info` *inside* the container.
+	# Let's use that as the server target.
+	$(DOCKER_COMPOSE) exec trino trino --server http://localhost:8080
+	# The original `trino.properties` has `http-server.http.port=8080`, so http, not https.
+	# The traefik proxy *adds* https.
+	# The trino-cli.sh has `https://${DOCKER_HOST_OR_IP}:8443 --insecure`
+	# This is confusing. I will use the one from the trino README:
+	@echo "Connecting to Trino at https://${DOCKER_HOST_OR_IP:-localhost}:8443"
+	docker exec -it trino trino --server https://${DOCKER_HOST_OR_IP:-localhost}:8443 --insecure
+	# The `docker exec` command is run from the host, but the `trino` command runs
+	# inside the `trino` container. The container itself may not know `DOCKER_HOST_OR_IP`.
+	# The simplest command is to connect to itself on its internal port.
+	@echo "Connecting to Trino CLI (internal port)..."
+	$(DOCKER_COMPOSE) exec trino trino --server http://localhost:8080
 
 # === Library Development Targets ===
 

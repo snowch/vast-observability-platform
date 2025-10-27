@@ -157,9 +157,84 @@ services:
       - kafka-ingestion
     restart: unless-stopped
 
+  # === Trino Config Generator ===
+  setup_config:
+    image: hairyhenderson/gomplate:latest
+    working_dir: /workspace
+    env_file:
+      - .env
+    volumes:
+      - ./trino/templates:/workspace/templates
+      - ./trino/generated:/workspace/output
+    command: "-f /workspace/templates/vast.properties-template -o /workspace/output/vast.properties"
+    networks:
+      - proxy
+
+  # === Traefik (Proxy for Trino) ===
+  traefik:
+    image: traefik:v3.1.6
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - 8443:443
+    networks:
+      - proxy
+    platform: linux/amd64
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --log.level=INFO
+      - --accesslog=true
+      - --accesslog.fields.names.HealthCheck=true
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.network=proxy
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.asDefault=true
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # === Trino (Analytics Query Engine) ===
+  trino:
+    container_name: trino
+    image: vastdataorg/trino-vast:${TRINO_VERSION}
+    restart: unless-stopped
+    depends_on:
+      setup_config:
+        condition: service_completed_successfully
+    mem_limit: 8g
+    ports:
+      - 18080:8080
+    networks:
+      - proxy
+    platform: linux/amd64
+    env_file:
+      - path: .env
+    volumes:
+      - ./trino/generated/vast.properties:/etc/trino/catalog/vast.properties:ro
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      retries: 10
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mytrino.rule=PathPrefix(`/`)
+      - traefik.http.routers.mytrino.entrypoints=websecure
+      - traefik.http.routers.mytrino.tls=true
+      - traefik.http.routers.mytrino.middlewares=trino-headers@docker
+      - traefik.http.middlewares.trino-headers.headers.customRequestHeaders.X-Forwarded-Proto=https
+      - traefik.http.services.trino.loadbalancer.healthcheck.path=/v1/info
+      - traefik.http.services.trino.loadbalancer.healthcheck.interval=10s
+
 volumes:
   postgres_data:
 
 networks:
   observability:
     driver: bridge
+  proxy:
+    name: proxy
